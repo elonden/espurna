@@ -2,7 +2,7 @@
 
 LIGHT MODULE
 
-Copyright (C) 2016-2018 by Xose Pérez <xose dot perez at gmail dot com>
+Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 */
 
@@ -669,7 +669,7 @@ void _lightComms(unsigned char mask) {
 
     // Report color to WS clients (using current brightness setting)
     #if WEB_SUPPORT
-        wsSend(_lightWebSocketOnSend);
+        wsSend(_lightWebSocketStatus);
     #endif
 
     // Report channels to local broker
@@ -824,23 +824,13 @@ bool _lightWebSocketOnReceive(const char * key, JsonVariant& value) {
     return false;
 }
 
-void _lightWebSocketOnSend(JsonObject& root) {
-    root["colorVisible"] = 1;
-    root["mqttGroupColor"] = getSetting("mqttGroupColor");
-    root["useColor"] = _light_has_color;
-    root["useWhite"] = _light_use_white;
-    root["useGamma"] = _light_use_gamma;
-    root["useTransitions"] = _light_use_transitions;
-    root["lightTime"] = _light_transition_time;
-    root["useCSS"] = getSetting("useCSS", LIGHT_USE_CSS).toInt() == 1;
-    bool useRGB = getSetting("useRGB", LIGHT_USE_RGB).toInt() == 1;
-    root["useRGB"] = useRGB;
+void _lightWebSocketStatus(JsonObject& root) {
     if (_light_has_color) {
         if (_light_use_cct) {
             root["useCCT"] = _light_use_cct;
             root["mireds"] = _light_mireds;
         }
-        if (useRGB) {
+        if (getSetting("useRGB", LIGHT_USE_RGB).toInt() == 1) {
             root["rgb"] = lightColor(true);
         } else {
             root["hsv"] = lightColor(false);
@@ -851,6 +841,20 @@ void _lightWebSocketOnSend(JsonObject& root) {
         channels.add(lightChannel(id));
     }
     root["brightness"] = lightBrightness();
+}
+
+void _lightWebSocketOnSend(JsonObject& root) {
+    root["colorVisible"] = 1;
+    root["mqttGroupColor"] = getSetting("mqttGroupColor");
+    root["useColor"] = _light_has_color;
+    root["useWhite"] = _light_use_white;
+    root["useGamma"] = _light_use_gamma;
+    root["useTransitions"] = _light_use_transitions;
+    root["useCSS"] = getSetting("useCSS", LIGHT_USE_CSS).toInt() == 1;
+    root["useRGB"] = getSetting("useRGB", LIGHT_USE_RGB).toInt() == 1;
+    root["lightTime"] = _light_transition_time;
+
+    _lightWebSocketStatus(root);
 }
 
 void _lightWebSocketOnAction(uint32_t client_id, const char * action, JsonObject& data) {
@@ -985,8 +989,15 @@ void _lightInitCommands() {
 
     terminalRegisterCommand(F("BRIGHTNESS"), [](Embedis* e) {
         if (e->argc > 1) {
-            lightBrightness(String(e->argv[1]).toInt());
-            lightUpdate(true, true);
+            const String value(e->argv[1]);
+            if( value.length() > 0 ) {
+                if( value[0] == '+' || value[0] == '-' ) {
+                    lightBrightness(lightBrightness()+String(e->argv[1]).toInt());
+                } else {
+                    lightBrightness(String(e->argv[1]).toInt());
+                }
+                lightUpdate(true, true);
+            }
         }
         DEBUG_MSG_P(PSTR("Brightness: %d\n"), lightBrightness());
         terminalOK();
@@ -1028,9 +1039,17 @@ void _lightInitCommands() {
 
     terminalRegisterCommand(F("MIRED"), [](Embedis* e) {
         if (e->argc > 1) {
-            String color = String("M") + String(e->argv[1]);
-            lightColor(color.c_str());
-            lightUpdate(true, true);
+            const String value(e->argv[1]);
+            String color = String("M");
+            if( value.length() > 0 ) {
+                if( value[0] == '+' || value[0] == '-' ) {
+                    color += String(_light_mireds + String(e->argv[1]).toInt());
+                } else {
+                    color += String(e->argv[1]);
+                }
+                lightColor(color.c_str());
+                lightUpdate(true, true);
+            }
         }
         DEBUG_MSG_P(PSTR("Color: %s\n"), lightColor().c_str());
         terminalOK();

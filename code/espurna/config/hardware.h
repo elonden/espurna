@@ -34,20 +34,22 @@
     #define MANUFACTURER            "ESPRESSIF"
     #define DEVICE                  "ESPURNA_CORE"
 
+    // UI modules
+    #define BUTTON_SUPPORT          0
+    #define MDNS_SERVER_SUPPORT     0
+    #define NTP_SUPPORT             0
+    #define WEB_SUPPORT             0
+
     // Disable non-core modules
     #define ALEXA_SUPPORT           0
     #define BROKER_SUPPORT          0
-    #define BUTTON_SUPPORT          0
     #define DOMOTICZ_SUPPORT        0
     #define HOMEASSISTANT_SUPPORT   0
     #define I2C_SUPPORT             0
-    #define MDNS_SERVER_SUPPORT     0
     #define MQTT_SUPPORT            0
-    #define NTP_SUPPORT             0
     #define SCHEDULER_SUPPORT       0
     #define SENSOR_SUPPORT          0
     #define THINGSPEAK_SUPPORT      0
-    #define WEB_SUPPORT             0
 
     // Extra light-weight image
     //#define DEBUG_SERIAL_SUPPORT    0
@@ -123,7 +125,7 @@
     #define RELAY1_PIN          5
     #define RELAY1_TYPE         RELAY_TYPE_NORMAL
 
-    // Light RGBW 
+    // LED
     #define LED1_PIN            2
     #define LED1_PIN_INVERSE    1
 
@@ -225,7 +227,6 @@
     // Relays
     #define RELAY1_PIN          12
     #define RELAY1_TYPE         RELAY_TYPE_INVERSE
-
 
 // Check http://tinkerman.cat/rfm69-wifi-gateway/
 #elif defined(TINKERMAN_RFM69GW)
@@ -2102,6 +2103,34 @@
     #define LED1_PIN_INVERSE	1
 
 // -----------------------------------------------------------------------------
+// Oukitel P1 Smart Plug
+// https://www.amazon.com/Docooler-OUKITEL-Control-Wireless-Adaptor/dp/B07J3BYFJX/ref=sr_1_fkmrnull_2?keywords=oukitel+p1+smart+switch&qid=1550424399&s=gateway&sr=8-2-fkmrnull
+// -----------------------------------------------------------------------------
+#elif defined(OUKITEL_P1)
+
+    // Info
+    #define MANUFACTURER		"Oukitel"
+    #define DEVICE				"P1"
+
+    // Buttons
+    #define BUTTON1_PIN			13
+    #define BUTTON1_MODE		BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY		1
+
+    // Relays
+    // Right
+    #define RELAY1_PIN			12
+    #define RELAY1_TYPE			RELAY_TYPE_NORMAL
+    // Left
+    #define RELAY2_PIN			15
+    #define RELAY2_TYPE			RELAY_TYPE_NORMAL
+
+    // LEDs
+    #define LED1_PIN			0  // blue
+    #define LED1_PIN_INVERSE	1
+    #define LED1_MODE           LED_MODE_WIFI
+
+// -----------------------------------------------------------------------------
 // YiDian XS-SSA05
 // -----------------------------------------------------------------------------
 
@@ -2207,7 +2236,7 @@
     // Buttons
     // Not a button but input via Optocoupler
     #define BUTTON1_PIN         5
-    #define BUTTON1_MODE        BUTTON_PUSHBUTTON
+    #define BUTTON1_MODE        BUTTON_PUSHBUTTON | BUTTON_SET_PULLUP | BUTTON_DEFAULT_HIGH
     #define BUTTON1_RELAY       1
 
     // Relays
@@ -2299,7 +2328,9 @@
 
     // Relays
     #define RELAY1_PIN          0
-    #define RELAY1_TYPE         RELAY_TYPE_NORMAL
+    #ifndef RELAY1_TYPE
+    #define RELAY1_TYPE         RELAY_TYPE_NORMAL   // See #1504 and #1554
+    #endif
 
     // LEDs
     #define LED1_PIN            2
@@ -2610,17 +2641,16 @@
 
 
 // ------------------------------------------------------------------------------
-// Estink Wifi Power Strip
-// https://www.amazon.de/Steckdosenleiste-Ladeger%C3%A4t-Sprachsteuerung-SmartphonesTablets-Android/dp/B0796W5FZY
 // Fornorm Wi-Fi USB Extension Socket (ZLD-34EU)
 // https://www.aliexpress.com/item/Fornorm-WiFi-Extension-Socket-with-Surge-Protector-Smart-Power-Strip-3-Outlets-and-4-USB-Charging/32849743948.html
+// Also: Estink Wifi Power Strip
 // -----------------------------------------------------------------------------
 
-#elif defined(ESTINK_WIFI_POWER_STRIP)
+#elif defined(FORNORM_ZLD_34EU)
 
     // Info
-    #define MANUFACTURER        "ESTINK"
-    #define DEVICE              "WIFI_POWER_STRIP"
+    #define MANUFACTURER        "FORNORM"
+    #define DEVICE              "ZLD_34EU"
 
     // Disable UART noise since this board uses GPIO3
     #define DEBUG_SERIAL_SUPPORT    0
@@ -2689,7 +2719,8 @@
     #define RELAY2_TYPE         RELAY_TYPE_NORMAL
 
 // -----------------------------------------------------------------------------
-// Several boards under different names uing a power chip labelled BL0937 or HJL-01
+// BlitzWolf SHP2 and SHP6
+// Also several boards under different names uing a power chip labelled BL0937 or HJL-01
 // * Blitzwolf (https://www.amazon.es/Inteligente-Temporización-Dispositivos-Cualquier-BlitzWolf/dp/B07BMQP142)
 // * HomeCube (https://www.amazon.de/Steckdose-Homecube-intelligente-Verbrauchsanzeige-funktioniert/dp/B076Q2LKHG)
 // * Coosa (https://www.amazon.com/COOSA-Monitoring-Function-Campatible-Assiatant/dp/B0788W9TDR)
@@ -2697,11 +2728,11 @@
 // * Ablue (https://www.amazon.de/Intelligente-Steckdose-Ablue-Funktioniert-Assistant/dp/B076DRFRZC)
 // -----------------------------------------------------------------------------
 
-#elif defined(BLITZWOLF_BWSHP2)
+#elif defined(BLITZWOLF_BWSHPX)
 
     // Info
     #define MANUFACTURER                "BLITZWOLF"
-    #define DEVICE                      "BWSHP2"
+    #define DEVICE                      "BWSHPX"
 
     // Buttons
     #define BUTTON1_PIN                 13
@@ -2736,13 +2767,15 @@
 
 // -----------------------------------------------------------------------------
 // Same as the above but new board version marked V2.3
+// BlitzWolf SHP2 V2.3
+// Gosund SP1 V2.3
 // -----------------------------------------------------------------------------
 
-#elif defined(BLITZWOLF_BWSHP2_V23)
+#elif defined(BLITZWOLF_BWSHPX_V23)
 
     // Info
     #define MANUFACTURER                "BLITZWOLF"
-    #define DEVICE                      "BWSHP2V2.3"
+    #define DEVICE                      "BWSHPX_V23"
 
     // Buttons
     #define BUTTON1_PIN                 3
@@ -2818,44 +2851,27 @@
 
 // -----------------------------------------------------------------------------
 // Several boards under different names uing a power chip labelled BL0937 or HJL-01
+// Also model number KS-602S
 // -----------------------------------------------------------------------------
 
-#elif defined(GOSUND_SP1_V23)
+#elif defined(GOSUND_WS1)
 
     // Info
-    #define MANUFACTURER                "GOSUND"
-    #define DEVICE                      "SP1_v23"
+    #define MANUFACTURER        "GOSUND"
+    #define DEVICE              "WS1"
 
     // Buttons
-    #define BUTTON1_PIN                 3
-    #define BUTTON1_MODE                BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
-    #define BUTTON1_RELAY               1
+    #define BUTTON1_PIN         0
+    #define BUTTON1_MODE        BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
 
     // Relays
-    #define RELAY1_PIN                  14
-    #define RELAY1_TYPE                 RELAY_TYPE_NORMAL
+    #define RELAY1_PIN          14
+    #define RELAY1_TYPE         RELAY_TYPE_NORMAL
 
     // LEDs
-    #define LED1_PIN                    1
-    #define LED1_PIN_INVERSE            1
-    #define LED2_PIN                    13
-    #define LED2_PIN_INVERSE            0
-    #define LED2_MODE                   LED_MODE_FINDME
-    #define LED2_RELAY                  1
-
-    // HJL01 / BL0937
-    #ifndef HLW8012_SUPPORT
-    #define HLW8012_SUPPORT             1
-    #endif
-    #define HLW8012_SEL_PIN             12
-    #define HLW8012_CF1_PIN             5
-    #define HLW8012_CF_PIN              4
-
-    #define HLW8012_SEL_CURRENT         LOW
-    #define HLW8012_CURRENT_RATIO       25740
-    #define HLW8012_VOLTAGE_RATIO       313400
-    #define HLW8012_POWER_RATIO         3414290
-    #define HLW8012_INTERRUPT_ON        FALLING
+    #define LED1_PIN            1
+    #define LED1_PIN_INVERSE    1
 
 // ----------------------------------------------------------------------------------------
 //  Homecube 16A is similar but some pins differ and it also has RGB LEDs
@@ -3090,6 +3106,7 @@
     #define BUTTON2_LNGLNGCLICK     BUTTON_MODE_RESET
 
     // Light
+    #define RELAY_PROVIDER      RELAY_PROVIDER_LIGHT
     #define LIGHT_PROVIDER      LIGHT_PROVIDER_DIMMER
     #define DUMMY_RELAY_COUNT   1
     #define LIGHT_STEP          8
@@ -3150,6 +3167,31 @@
     #define LIGHT_CH1_PIN       12      // RED
     #define LIGHT_CH2_PIN       5       // GREEN
     #define LIGHT_CH3_PIN       14      // BLUE
+    #define LIGHT_CH4_PIN       4       // WHITE
+    #define LIGHT_CH1_INVERSE   0
+    #define LIGHT_CH2_INVERSE   0
+    #define LIGHT_CH3_INVERSE   0
+    #define LIGHT_CH4_INVERSE   0
+
+// -----------------------------------------------------------------------------
+// Generic GU10
+// https://www.ebay.com/itm/1-10PC-GU10-RGB-Smart-Bulb-Wireless-WiFi-App-Remote-Ctrl-Light-for-Alexa-Google/173724116351
+// -----------------------------------------------------------------------------
+
+#elif defined(GENERIC_GU10)
+
+    // Info
+    #define MANUFACTURER        "GENERIC"
+    #define DEVICE              "GU10"
+    #define RELAY_PROVIDER      RELAY_PROVIDER_LIGHT
+    #define LIGHT_PROVIDER      LIGHT_PROVIDER_DIMMER
+    #define DUMMY_RELAY_COUNT   1
+
+    // Light
+    #define LIGHT_CHANNELS      4
+    #define LIGHT_CH1_PIN       14      // RED
+    #define LIGHT_CH2_PIN       12      // GREEN
+    #define LIGHT_CH3_PIN       13      // BLUE
     #define LIGHT_CH4_PIN       4       // WHITE
     #define LIGHT_CH1_INVERSE   0
     #define LIGHT_CH2_INVERSE   0
@@ -3262,8 +3304,10 @@
     #define LIGHT_CH4_INVERSE   0	
     
 // ----------------------------------------------------------------------------------------
-//  Smart life Mini Smart Socket is similar Homecube 16A but some GPIOs differ
-//  https://www.ebay.de/itm/Smart-Steckdose-WIFI-WLAN-Amazon-Alexa-Fernbedienung-Home-Socket-Zeitschaltuh-DE/123352026749?hash=item1cb85a8e7d:g:IasAAOSwk6dbj390
+// Smart life Mini Smart Socket is similar Homecube 16A but some GPIOs differ
+// https://www.ebay.de/itm/Smart-Steckdose-WIFI-WLAN-Amazon-Alexa-Fernbedienung-Home-Socket-Zeitschaltuh-DE/123352026749?hash=item1cb85a8e7d:g:IasAAOSwk6dbj390
+// Also labeled NETVIP
+// https://www.amazon.es/Inteligente-NETVIP-Inal%C3%A1mbrico-Interruptor-Funciona/dp/B07KH8YWS5
 // ----------------------------------------------------------------------------------------
 
 #elif defined(SMARTLIFE_MINI_SMART_SOCKET)
@@ -3311,6 +3355,165 @@
     #define HLW8012_VOLTAGE_RATIO       313400
     #define HLW8012_POWER_RATIO         3414290
     #define HLW8012_INTERRUPT_ON        FALLING
+
+// ----------------------------------------------------------------------------------------
+// Hama WiFi Steckdose (00176533)
+// https://at.hama.com/00176533/hama-wifi-steckdose-3500w-16a
+// ----------------------------------------------------------------------------------------
+
+#elif defined(HAMA_WIFI_STECKDOSE_00176533)
+
+    // Info
+    #define MANUFACTURER        "HAMA"
+    #define DEVICE              "WIFI_STECKDOSE_00176533"
+
+    // Buttons
+    #define BUTTON1_PIN         13
+    #define BUTTON1_MODE        BUTTON_PUSHBUTTON | BUTTON_SET_PULLUP | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
+
+    // Relays
+    #define RELAY1_PIN          12
+    #define RELAY1_TYPE         RELAY_TYPE_NORMAL
+
+    // LEDs
+    #define LED1_PIN            4
+    #define LED1_PIN_INVERSE    1
+
+// -----------------------------------------------------------------------------
+// Oxaoxe NX-SP202
+// Digoo NX-SP202 (not tested)
+// Digoo DG-SP202 (not tested)
+// https://github.com/xoseperez/espurna/issues/1502
+// -----------------------------------------------------------------------------
+
+#elif defined(DIGOO_NX_SP202)
+
+    // Info
+    #define MANUFACTURER                "DIGOO"
+    #define DEVICE                      "NX_SP202"
+
+    // Buttons
+    #define BUTTON1_PIN                 0
+    #define BUTTON1_MODE                BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY               1
+    #define BUTTON2_PIN                 16
+    #define BUTTON2_MODE                BUTTON_PUSHBUTTON | BUTTON_SET_PULLUP | BUTTON_DEFAULT_HIGH
+    #define BUTTON2_RELAY               2
+
+    // Relays
+    #define RELAY1_PIN                  15
+    #define RELAY1_TYPE                 RELAY_TYPE_NORMAL
+    #define RELAY2_PIN                  14
+    #define RELAY2_TYPE                 RELAY_TYPE_NORMAL
+
+    // LEDs
+    #define LED1_PIN                    13
+    #define LED1_PIN_INVERSE            1
+
+    // HJL01 / BL0937
+    #ifndef HLW8012_SUPPORT
+    #define HLW8012_SUPPORT             1
+    #endif
+    #define HLW8012_SEL_PIN             12
+    #define HLW8012_CF1_PIN             5
+    #define HLW8012_CF_PIN              4
+
+    #define HLW8012_SEL_CURRENT         LOW
+    #define HLW8012_CURRENT_RATIO       23296
+    #define HLW8012_VOLTAGE_RATIO       310085
+    #define HLW8012_POWER_RATIO         3368471
+    #define HLW8012_INTERRUPT_ON        FALLING
+
+// -----------------------------------------------------------------------------
+// Foxel's LightFox dual
+// https://github.com/foxel/esp-dual-rf-switch
+// -----------------------------------------------------------------------------
+
+#elif defined(FOXEL_LIGHTFOX_DUAL)
+
+    // Info
+    #define MANUFACTURER            "FOXEL"
+    #define DEVICE                  "LIGHTFOX_DUAL"
+    #define SERIAL_BAUDRATE         19200
+    #define RELAY_PROVIDER          RELAY_PROVIDER_DUAL
+    #define DUMMY_RELAY_COUNT       2
+    #define DEBUG_SERIAL_SUPPORT    0
+
+    // Buttons
+    #define BUTTON1_RELAY           1
+    #define BUTTON2_RELAY           2
+    #define BUTTON3_RELAY           2
+    #define BUTTON4_RELAY           1
+
+// -----------------------------------------------------------------------------
+// Teckin SP20
+// -----------------------------------------------------------------------------
+
+ #elif defined(TECKIN_SP20)
+
+     // Info
+    #define MANUFACTURER                "TECKIN"
+    #define DEVICE                      "SP20"
+
+     // Buttons
+    #define BUTTON1_PIN                 13
+    #define BUTTON1_MODE                BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY               1
+
+     // Relays
+    #define RELAY1_PIN                  4
+    #define RELAY1_TYPE                 RELAY_TYPE_NORMAL
+
+     // LEDs
+    #define LED1_PIN                    2
+    #define LED1_PIN_INVERSE            1
+    #define LED2_PIN                    0
+    #define LED2_PIN_INVERSE            1
+    #define LED2_MODE                   LED_MODE_FINDME
+    #define LED2_RELAY                  0
+
+     // HJL01 / BL0937
+    #ifndef HLW8012_SUPPORT
+    #define HLW8012_SUPPORT             1
+    #endif
+    #define HLW8012_SEL_PIN             12
+    #define HLW8012_CF1_PIN             14
+    #define HLW8012_CF_PIN              5
+
+     #define HLW8012_SEL_CURRENT         LOW
+    #define HLW8012_CURRENT_RATIO       25740
+    #define HLW8012_VOLTAGE_RATIO       313400
+    #define HLW8012_POWER_RATIO         3414290
+    #define HLW8012_INTERRUPT_ON        FALLING
+
+// -----------------------------------------------------------------------------
+// Charging Essentials / LITESUN LA-WF3
+// -----------------------------------------------------------------------------
+
+#elif defined(LITESUN_LA_WF3)
+
+    // Info
+    #define MANUFACTURER        "LITESUN"
+    #define DEVICE              "LA_WF3"
+
+    // Buttons
+    #define BUTTON1_PIN         13
+    #define BUTTON1_MODE        BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
+
+    // Relays
+    #define RELAY1_PIN          12
+    #define RELAY1_TYPE         RELAY_TYPE_NORMAL
+
+    // LEDs
+    #define LED1_PIN            4  // 4 blue led
+    #define LED1_MODE           LED_MODE_WIFI
+    #define LED1_PIN_INVERSE    1
+    
+    #define LED2_PIN            5  // 5 red led
+    #define LED2_MODE           LED_MODE_RELAY
+    #define LED2_PIN_INVERSE    1
 
 // -----------------------------------------------------------------------------
 // TEST boards (do not use!!)

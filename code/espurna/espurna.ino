@@ -2,7 +2,7 @@
 
 ESPurna
 
-Copyright (C) 2016-2018 by Xose Pérez <xose dot perez at gmail dot com>
+Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -188,6 +188,15 @@ void setup() {
     #endif
     #if UART_MQTT_SUPPORT
         uartmqttSetup();
+    #endif
+    #ifdef FOXEL_LIGHTFOX_DUAL
+        lightfoxSetup();
+    #endif
+    #if THERMOSTAT_SUPPORT
+        thermostatSetup();
+    #endif
+    #if THERMOSTAT_DISPLAY_SUPPORT
+        displaySetup();
     #endif
 
 

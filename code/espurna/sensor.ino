@@ -2,7 +2,7 @@
 
 SENSOR MODULE
 
-Copyright (C) 2016-2018 by Xose Pérez <xose dot perez at gmail dot com>
+Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 */
 
@@ -15,11 +15,14 @@ Copyright (C) 2016-2018 by Xose Pérez <xose dot perez at gmail dot com>
 #include "filters/MovingAverageFilter.h"
 #include "sensors/BaseSensor.h"
 
+#include <float.h>
+
 typedef struct {
     BaseSensor * sensor;        // Sensor object
     BaseFilter * filter;        // Filter object
     unsigned char local;        // Local index in its provider
     unsigned char type;         // Type of measurement
+    unsigned char decimals;     // Number of decimals in textual representation
     unsigned char global;       // Global index in its type
     double current;             // Current (last) value, unfiltered
     double reported;            // Last reported value
@@ -71,7 +74,7 @@ unsigned char _magnitudeDecimals(unsigned char type) {
 
 }
 
-double _magnitudeProcess(unsigned char type, double value) {
+double _magnitudeProcess(unsigned char type, unsigned char decimals, double value) {
 
     // Hardcoded conversions (these should be linked to the unit, instead of the magnitude)
 
@@ -94,13 +97,38 @@ double _magnitudeProcess(unsigned char type, double value) {
         if (_sensor_power_units == POWER_KILOWATTS) value = value  / 1000;
     }
 
-    return roundTo(value, _magnitudeDecimals(type));
+    return roundTo(value, decimals);
 
 }
 
 // -----------------------------------------------------------------------------
 
 #if WEB_SUPPORT
+
+template<typename T> void _sensorWebSocketMagnitudes(JsonObject& root, T prefix) {
+
+    // ws produces flat list <prefix>Magnitudes
+    String ws_name = String(prefix);
+    ws_name.concat("Magnitudes");
+
+    // config uses <prefix>Magnitude<index> (cut 's')
+    String conf_name = ws_name.substring(0, ws_name.length() - 1);
+
+    JsonObject& list = root.createNestedObject(ws_name);
+    list["size"] = magnitudeCount();
+
+    JsonArray& name = list.createNestedArray("name");
+    JsonArray& type = list.createNestedArray("type");
+    JsonArray& index = list.createNestedArray("index");
+    JsonArray& idx = list.createNestedArray("idx");
+
+    for (unsigned char i=0; i<magnitudeCount(); ++i) {
+        name.add(magnitudeName(i));
+        type.add(magnitudeType(i));
+        index.add(magnitudeIndex(i));
+        idx.add(getSetting(conf_name, i, 0).toInt());
+    }
+}
 
 bool _sensorWebSocketOnReceive(const char * key, JsonVariant& value) {
     if (strncmp(key, "pwr", 3) == 0) return true;
@@ -118,27 +146,36 @@ void _sensorWebSocketSendData(JsonObject& root) {
     bool hasHumidity = false;
     bool hasMICS = false;
 
-    JsonArray& list = root.createNestedArray("magnitudes");
-    for (unsigned char i=0; i<_magnitudes.size(); i++) {
+    JsonObject& magnitudes = root.createNestedObject("magnitudes");
+    uint8_t size = 0;
+
+    JsonArray& index = magnitudes.createNestedArray("index");
+    JsonArray& type = magnitudes.createNestedArray("type");
+    JsonArray& value = magnitudes.createNestedArray("value");
+    JsonArray& units = magnitudes.createNestedArray("units");
+    JsonArray& error = magnitudes.createNestedArray("error");
+    JsonArray& description = magnitudes.createNestedArray("description");
+
+    for (unsigned char i=0; i<magnitudeCount(); i++) {
 
         sensor_magnitude_t magnitude = _magnitudes[i];
         if (magnitude.type == MAGNITUDE_EVENT) continue;
+        ++size;
 
-        unsigned char decimals = _magnitudeDecimals(magnitude.type);
+        unsigned char decimals = magnitude.decimals;
         dtostrf(magnitude.current, 1-sizeof(buffer), decimals, buffer);
 
-        JsonObject& element = list.createNestedObject();
-        element["index"] = int(magnitude.global);
-        element["type"] = int(magnitude.type);
-        element["value"] = String(buffer);
-        element["units"] = magnitudeUnits(magnitude.type);
-        element["error"] = magnitude.sensor->error();
+        index.add<uint8_t>(magnitude.global);
+        type.add<uint8_t>(magnitude.type);
+        value.add(buffer);
+        units.add(magnitudeUnits(magnitude.type));
+        error.add(magnitude.sensor->error());
 
         if (magnitude.type == MAGNITUDE_ENERGY) {
             if (_sensor_energy_reset_ts.length() == 0) _sensorResetTS();
-            element["description"] = magnitude.sensor->slot(magnitude.local) + String(" (since ") + _sensor_energy_reset_ts + String(")");
+            description.add(magnitude.sensor->slot(magnitude.local) + String(" (since ") + _sensor_energy_reset_ts + String(")"));
         } else {
-            element["description"] = magnitude.sensor->slot(magnitude.local);
+            description.add(magnitude.sensor->slot(magnitude.local));
         }
 
         if (magnitude.type == MAGNITUDE_TEMPERATURE) hasTemperature = true;
@@ -147,6 +184,8 @@ void _sensorWebSocketSendData(JsonObject& root) {
         if (magnitude.type == MAGNITUDE_CO || magnitude.type == MAGNITUDE_NO2) hasMICS = true;
         #endif
     }
+
+    magnitudes["size"] = size;
 
     if (hasTemperature) root["temperatureVisible"] = 1;
     if (hasHumidity) root["humidityVisible"] = 1;
@@ -210,7 +249,7 @@ void _sensorWebSocketStart(JsonObject& root) {
 
     }
 
-    if (_magnitudes.size() > 0) {
+    if (magnitudeCount()) {
         root["snsVisible"] = 1;
         //root["apiRealTime"] = _sensor_realtime;
         root["pwrUnits"] = _sensor_power_units;
@@ -257,7 +296,7 @@ void _sensorAPISetup() {
 
         apiRegister(topic.c_str(), [magnitude_id](char * buffer, size_t len) {
             sensor_magnitude_t magnitude = _magnitudes[magnitude_id];
-            unsigned char decimals = _magnitudeDecimals(magnitude.type);
+            unsigned char decimals = magnitude.decimals;
             double value = _sensor_realtime ? magnitude.current : magnitude.reported;
             dtostrf(value, 1-len, decimals, buffer);
         });
@@ -602,6 +641,8 @@ void _sensorLoad() {
         MHZ19Sensor * sensor = new MHZ19Sensor();
         sensor->setRX(MHZ19_RX_PIN);
         sensor->setTX(MHZ19_TX_PIN);
+        if (getSetting("mhz19CalibrateAuto", 0).toInt() == 1)
+            sensor->setCalibrateAuto(true);
         _sensors.push_back(sensor);
     }
     #endif
@@ -809,11 +850,14 @@ void _sensorInit() {
         for (unsigned char k=0; k<_sensors[i]->count(); k++) {
 
             unsigned char type = _sensors[i]->type(k);
+	    signed char decimals = _sensors[i]->decimals(type);
+	    if (decimals < 0) decimals = _magnitudeDecimals(type);
 
             sensor_magnitude_t new_magnitude;
             new_magnitude.sensor = _sensors[i];
             new_magnitude.local = k;
             new_magnitude.type = type;
+	    new_magnitude.decimals = (unsigned char) decimals;
             new_magnitude.global = _counts[type];
             new_magnitude.current = 0;
             new_magnitude.reported = 0;
@@ -1166,7 +1210,7 @@ void _sensorConfigure() {
 void _sensorReport(unsigned char index, double value) {
 
     sensor_magnitude_t magnitude = _magnitudes[index];
-    unsigned char decimals = _magnitudeDecimals(magnitude.type);
+    unsigned char decimals = magnitude.decimals;
 
     char buffer[10];
     dtostrf(value, 1-sizeof(buffer), decimals, buffer);
@@ -1246,6 +1290,13 @@ unsigned char magnitudeType(unsigned char index) {
         return int(_magnitudes[index].type);
     }
     return MAGNITUDE_NONE;
+}
+
+double magnitudeValue(unsigned char index) {
+    if (index < _magnitudes.size()) {
+        return _sensor_realtime ? _magnitudes[index].current : _magnitudes[index].reported;
+    }
+    return DBL_MIN;
 }
 
 unsigned char magnitudeIndex(unsigned char index) {
@@ -1366,7 +1417,7 @@ void sensorLoop() {
 
         // Get the first relay state
         #if SENSOR_POWER_CHECK_STATUS
-            bool relay_off = (relayCount() > 0) && (relayStatus(0) == 0);
+            bool relay_off = (relayCount() == 1) && (relayStatus(0) == 0);
         #endif
 
         // Get readings
@@ -1409,7 +1460,7 @@ void sensorLoop() {
                     current = magnitude.filter->result();
                 }
 
-                current = _magnitudeProcess(magnitude.type, current);
+                current = _magnitudeProcess(magnitude.type, magnitude.decimals, current);
                 _magnitudes[i].current = current;
 
                 // -------------------------------------------------------------
@@ -1419,7 +1470,7 @@ void sensorLoop() {
                 #if SENSOR_DEBUG
                 {
                     char buffer[64];
-                    dtostrf(current, 1-sizeof(buffer), _magnitudeDecimals(magnitude.type), buffer);
+                    dtostrf(current, 1-sizeof(buffer), magnitude.decimals, buffer);
                     DEBUG_MSG_P(PSTR("[SENSOR] %s - %s: %s%s\n"),
                         magnitude.sensor->slot(magnitude.local).c_str(),
                         magnitudeTopic(magnitude.type).c_str(),
@@ -1437,14 +1488,14 @@ void sensorLoop() {
                 bool report = (0 == report_count);
                 if ((MAGNITUDE_ENERGY == magnitude.type) && (magnitude.max_change > 0)) {
                     // for MAGNITUDE_ENERGY, filtered value is last value
-                    double value = _magnitudeProcess(magnitude.type, current);
+                    double value = _magnitudeProcess(magnitude.type, magnitude.decimals, current);
                     report = (fabs(value - magnitude.reported) >= magnitude.max_change);
                 } // if ((MAGNITUDE_ENERGY == magnitude.type) && (magnitude.max_change > 0))
 
                 if (report) {
 
                     filtered = magnitude.filter->result();
-                    filtered = _magnitudeProcess(magnitude.type, filtered);
+                    filtered = _magnitudeProcess(magnitude.type, magnitude.decimals, filtered);
                     magnitude.filter->reset();
 
                     // Check if there is a minimum change threshold to report
