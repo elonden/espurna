@@ -44,6 +44,7 @@ unsigned char _sensor_energy_units = SENSOR_ENERGY_UNITS;
 unsigned char _sensor_temperature_units = SENSOR_TEMPERATURE_UNITS;
 double _sensor_temperature_correction = SENSOR_TEMPERATURE_CORRECTION;
 double _sensor_humidity_correction = SENSOR_HUMIDITY_CORRECTION;
+double _sensor_lux_correction = SENSOR_LUX_CORRECTION;
 
 #if PZEM004T_SUPPORT
 PZEM004TSensor *pzem004t_sensor;
@@ -86,6 +87,10 @@ double _magnitudeProcess(unsigned char type, unsigned char decimals, double valu
 
     if (type == MAGNITUDE_HUMIDITY) {
         value = constrain(value + _sensor_humidity_correction, 0, 100);
+    }
+
+    if (type == MAGNITUDE_LUX) {
+        value = value + _sensor_lux_correction;
     }
 
     if (type == MAGNITUDE_ENERGY ||
@@ -137,6 +142,7 @@ bool _sensorWebSocketOnReceive(const char * key, JsonVariant& value) {
     if (strncmp(key, "tmp", 3) == 0) return true;
     if (strncmp(key, "hum", 3) == 0) return true;
     if (strncmp(key, "ene", 3) == 0) return true;
+    if (strncmp(key, "lux", 3) == 0) return true;
     return false;
 }
 
@@ -423,6 +429,35 @@ void _sensorResetTS() {
     #endif
 }
 
+double _sensorEnergyTotal() {
+    double value = 0;
+
+    if (rtcmemStatus()) {
+        value = Rtcmem->energy;
+    } else {
+        value = (_sensor_save_every > 0) ? getSetting("eneTotal", 0).toInt() : 0;
+    }
+
+    return value;
+}
+
+
+void _sensorEnergyTotal(double value) {
+    static unsigned long save_count = 0;
+
+    // Save to EEPROM every '_sensor_save_every' readings
+    if (_sensor_save_every > 0) {
+        save_count = (save_count + 1) % _sensor_save_every;
+        if (0 == save_count) {
+            setSetting("eneTotal", value);
+            saveSettings();
+        }
+    }
+
+    // Always save to RTCMEM
+    Rtcmem->energy = value;
+}
+
 // -----------------------------------------------------------------------------
 // Sensor initialization
 // -----------------------------------------------------------------------------
@@ -644,6 +679,19 @@ void _sensorLoad() {
         sensor->setCF(HLW8012_CF_PIN);
         sensor->setCF1(HLW8012_CF1_PIN);
         sensor->setSELCurrent(HLW8012_SEL_CURRENT);
+        _sensors.push_back(sensor);
+    }
+    #endif
+
+    #if LDR_SUPPORT
+    {
+        LDRSensor * sensor = new LDRSensor();
+        sensor->setSamples(LDR_SAMPLES);
+        sensor->setDelay(LDR_DELAY);
+        sensor->setType(LDR_TYPE);
+        sensor->setPhotocellPositionOnGround(LDR_ON_GROUND);
+        sensor->setResistor(LDR_RESISTOR);
+        sensor->setPhotocellParameters(LDR_MULTIPLICATION, LDR_POWER);
         _sensors.push_back(sensor);
     }
     #endif
@@ -939,7 +987,9 @@ void _sensorInit() {
                 EmonAnalogSensor * sensor = (EmonAnalogSensor *) _sensors[i];
                 sensor->setCurrentRatio(0, getSetting("pwrRatioC", EMON_CURRENT_RATIO).toFloat());
                 sensor->setVoltage(getSetting("pwrVoltage", EMON_MAINS_VOLTAGE).toInt());
-                double value = (_sensor_save_every > 0) ? getSetting("eneTotal", 0).toInt() : 0;
+
+                double value = _sensorEnergyTotal();
+
                 if (value > 0) sensor->resetEnergy(0, value);
             }
 
@@ -962,7 +1012,7 @@ void _sensorInit() {
                 value = getSetting("pwrRatioP", HLW8012_POWER_RATIO).toFloat();
                 if (value > 0) sensor->setPowerRatio(value);
 
-                value = (_sensor_save_every > 0) ? getSetting("eneTotal", 0).toInt() : 0;
+                value = _sensorEnergyTotal();
                 if (value > 0) sensor->resetEnergy(value);
 
             }
@@ -986,7 +1036,7 @@ void _sensorInit() {
                 value = getSetting("pwrRatioP", 0).toFloat();
                 if (value > 0) sensor->setPowerRatio(value);
 
-                value = (_sensor_save_every > 0) ? getSetting("eneTotal", 0).toInt() : 0;
+                value = _sensorEnergyTotal();
                 if (value > 0) sensor->resetEnergy(value);
 
             }
@@ -1017,6 +1067,7 @@ void _sensorConfigure() {
     _sensor_temperature_correction = getSetting("tmpCorrection", SENSOR_TEMPERATURE_CORRECTION).toFloat();
     _sensor_humidity_correction = getSetting("humCorrection", SENSOR_HUMIDITY_CORRECTION).toFloat();
     _sensor_energy_reset_ts = getSetting("snsResetTS", "");
+    _sensor_lux_correction = getSetting("luxCorrection", SENSOR_LUX_CORRECTION).toFloat();
 
     // Specific sensor settings
     for (unsigned char i=0; i<_sensors.size(); i++) {
@@ -1426,7 +1477,6 @@ void sensorLoop() {
     // Check if we should read new data
     static unsigned long last_update = 0;
     static unsigned long report_count = 0;
-    static unsigned long save_count = 0;
     if (millis() - last_update > _sensor_read_interval) {
 
         last_update = millis();
@@ -1532,23 +1582,11 @@ void sensorLoop() {
                         _sensorReport(i, value_filtered);
                     } // if (fabs(value_filtered - magnitude.reported) >= magnitude.min_change)
 
-                    // -------------------------------------------------------------
-                    // Saving to EEPROM
-                    // (we do it every _sensor_save_every readings)
-                    // -------------------------------------------------------------
 
-                    if (_sensor_save_every > 0) {
-
-                        save_count = (save_count + 1) % _sensor_save_every;
-
-                        if (0 == save_count) {
-                            if (MAGNITUDE_ENERGY == magnitude.type) {
-                                setSetting("eneTotal", value_raw);
-                                saveSettings();
-                            }
-                        } // if (0 == save_count)
-
-                    } // if (_sensor_save_every > 0)
+                    // Persist total energy value
+                    if (MAGNITUDE_ENERGY == magnitude.type) {
+                        _sensorEnergyTotal(value_raw);
+                    }
 
                 } // if (report_count == 0)
 
