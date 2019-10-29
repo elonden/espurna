@@ -1315,6 +1315,63 @@ void migrate() {
             setSetting("chLogic", 3, 0);
             setSetting("relays", 1);
 
+        #elif defined(ISELECTOR_SM_PW702)
+
+            setSetting("board", 98);
+            setSetting("ledGPIO", 0, 4);
+            setSetting("ledLogic", 0, 0);
+            setSetting("ledGPIO", 1, 5);
+            setSetting("ledLogic", 0, 0);
+            setSetting("btnGPIO", 0, 13);
+            setSetting("btnRelay", 0, 0);
+            setSetting("relayGPIO", 0, 12);
+            setSetting("relayType", 0, RELAY_TYPE_NORMAL);
+
+        #elif defined(ITEAD_SONOFF_MINI)
+
+            setSetting("board", 99);
+            setSetting("ledGPIO", 0, 13);
+            setSetting("ledLogic", 0, 1);
+            setSetting("btnGPIO", 0, 0);
+            setSetting("btnRelay", 0, 0);
+            setSetting("btnGPIO", 1, 4);
+            setSetting("btnRelay", 1, 0);
+            setSetting("relayGPIO", 0, 12);
+            setSetting("relayType", 0, RELAY_TYPE_NORMAL);
+
+        #elif defined(TECKIN_SP21)
+
+            setSetting("board", 100);
+            setSetting("ledGPIO", 0, 2);
+            setSetting("ledLogic", 0, 1);
+            setSetting("btnGPIO", 0, 13);
+            setSetting("btnRelay", 0, 0);
+            setSetting("relayGPIO", 0, 15);
+            setSetting("relayType", 0, RELAY_TYPE_NORMAL);
+
+        #elif defined(TFLAG_NX_SMX00)
+
+            setSetting("board", 101);
+            setSetting("ledGPIO", 0, 0);
+            setSetting("ledLogic", 0, 1);
+            setSetting("ledMode", 0, LED_MODE_FOLLOW_INVERSE);
+            setSetting("ledRelay", 0, 0);
+            setSetting("ledGPIO", 1, 15);
+            setSetting("ledLogic", 1, 1);
+            setSetting("ledMode", 1, LED_MODE_WIFI);
+            setSetting("btnGPIO", 0, 13);
+            setSetting("btnRelay", 0, 0);
+            setSetting("relayGPIO", 0, 12);
+            setSetting("relayType", 0, RELAY_TYPE_NORMAL);
+            setSetting("selGPIO", 16);
+            setSetting("cf1GPIO", 14);
+            setSetting("cfGPIO", 5);
+            setSetting("pwrRatioC", 632);
+            setSetting("pwrRatioV", 313400);
+            setSetting("pwrRatioP", 3711185);
+            setSetting("hlwSelC", LOW);
+            setSetting("hlwIntM", FALLING);
+
         #else
 
             // Allow users to define new settings without migration config

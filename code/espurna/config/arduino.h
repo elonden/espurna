@@ -12,6 +12,7 @@
 //#define ALLTERCO_SHELLY1
 //#define ALLTERCO_SHELLY2
 //#define ALLTERCO_SHELLY1PM
+//#define ALLTERCO_SHELLY25
 //#define ARILUX_AL_LC01
 //#define ARILUX_AL_LC02
 //#define ARILUX_AL_LC02_V14
@@ -26,6 +27,7 @@
 //#define BLITZWOLF_BWSHPX_V23
 //#define DIGOO_NX_SP202
 //#define ELECTRODRAGON_WIFI_IOT
+//#define ESPURNA_BASE
 //#define ESPURNA_CORE
 //#define EUROMATE_WIFI_STECKER_SCHUKO
 //#define EUROMATE_WIFI_STECKER_SCHUKO_V2
@@ -33,6 +35,7 @@
 //#define EXS_WIFI_RELAY_V50
 //#define FORNORM_ZLD_34EU
 //#define FOXEL_LIGHTFOX_DUAL
+//#define FS_UAP1
 //#define GBLIFE_RGBW_SOCKET
 //#define GENERIC_8CH
 //#define GENERIC_AG_L4
@@ -68,11 +71,13 @@
 //#define ITEAD_SONOFF_DUAL_R2
 //#define ITEAD_SONOFF_IFAN02
 //#define ITEAD_SONOFF_LED
+//#define ITEAD_SONOFF_MINI
 //#define ITEAD_SONOFF_POW
 //#define ITEAD_SONOFF_POW_R2
 //#define ITEAD_SONOFF_RF
 //#define ITEAD_SONOFF_RFBRIDGE
 //#define ITEAD_SONOFF_S31
+//#define ITEAD_SONOFF_S31_LITE
 //#define ITEAD_SONOFF_SV
 //#define ITEAD_SONOFF_T1_1CH
 //#define ITEAD_SONOFF_T1_2CH
@@ -112,7 +117,9 @@
 //#define SMARTLIFE_MINI_SMART_SOCKET
 //#define STM_RELAY
 //#define TECKIN_SP20
+//#define TECKIN_SP21
 //#define TECKIN_SP22_V14
+//#define TFLAG_NX_SMX00
 //#define TINKERMAN_ESPURNA_H06
 //#define TINKERMAN_ESPURNA_H08
 //#define TINKERMAN_ESPURNA_SWITCH
@@ -128,6 +135,7 @@
 //#define WION_50055
 //#define WORKCHOICE_ECOPLUG
 //#define XENON_SM_PW702U
+//#define ISELECTOR_SM_PW702
 //#define XIAOMI_SMART_DESK_LAMP
 //#define YIDIAN_XSSSA05
 //#define YJZK_SWITCH_1CH
@@ -213,3 +221,4 @@
 //#define V9261F_SUPPORT         1
 //#define VEML6075_SUPPORT       1
 //#define VL53L1X_SUPPORT        1
+//#define ADE7953_SUPPORT        1
