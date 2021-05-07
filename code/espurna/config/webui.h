@@ -2,13 +2,17 @@
 // WEB UI IMAGE
 // -----------------------------------------------------------------------------
 
+#pragma once
+
 #define WEBUI_IMAGE_SMALL      0
 #define WEBUI_IMAGE_LIGHT      1
 #define WEBUI_IMAGE_SENSOR     2
 #define WEBUI_IMAGE_RFBRIDGE   4
 #define WEBUI_IMAGE_RFM69      8
 #define WEBUI_IMAGE_LIGHTFOX   16
+#define WEBUI_IMAGE_GARLAND    31
 #define WEBUI_IMAGE_THERMOSTAT 32
+#define WEBUI_IMAGE_CURTAIN    64
 #define WEBUI_IMAGE_FULL       15
 
 #if LIGHT_PROVIDER != LIGHT_PROVIDER_NONE
@@ -29,7 +33,7 @@
     #endif
 #endif
 
-#if RF_SUPPORT == 1
+#if RFB_SUPPORT == 1
     #ifndef WEBUI_IMAGE
         #define WEBUI_IMAGE    WEBUI_IMAGE_RFBRIDGE
     #else
@@ -54,9 +58,27 @@
     #define WEBUI_IMAGE        WEBUI_IMAGE_LIGHTFOX
 #endif
 
+#if GARLAND_SUPPORT == 1
+    #ifndef WEBUI_IMAGE
+        #define WEBUI_IMAGE    WEBUI_IMAGE_GARLAND
+    #else
+        #undef WEBUI_IMAGE
+        #define WEBUI_IMAGE    WEBUI_IMAGE_FULL
+    #endif
+#endif
+
 #if THERMOSTAT_SUPPORT == 1
     #ifndef WEBUI_IMAGE
         #define WEBUI_IMAGE    WEBUI_IMAGE_THERMOSTAT
+    #else
+        #undef WEBUI_IMAGE
+        #define WEBUI_IMAGE    WEBUI_IMAGE_FULL
+    #endif
+#endif
+
+#if CURTAIN_SUPPORT == 1
+    #ifndef WEBUI_IMAGE
+        #define WEBUI_IMAGE    WEBUI_IMAGE_CURTAIN
     #else
         #undef WEBUI_IMAGE
         #define WEBUI_IMAGE    WEBUI_IMAGE_FULL
@@ -67,31 +89,3 @@
     #define WEBUI_IMAGE        WEBUI_IMAGE_SMALL
 #endif
 
-#include <pgmspace.h>
-
-PROGMEM const char espurna_webui[] =
-    #if WEBUI_IMAGE == WEBUI_IMAGE_SMALL
-        "SMALL"
-    #endif
-    #if WEBUI_IMAGE == WEBUI_IMAGE_LIGHT
-        "LIGHT"
-    #endif
-    #if WEBUI_IMAGE == WEBUI_IMAGE_SENSOR
-        "SENSOR"
-    #endif
-    #if WEBUI_IMAGE == WEBUI_IMAGE_RFBRIDGE
-        "RFBRIDGE"
-    #endif
-    #if WEBUI_IMAGE == WEBUI_IMAGE_RFM69
-        "RFM69"
-    #endif
-    #if WEBUI_IMAGE == WEBUI_IMAGE_LIGHTFOX
-        "LIGHTFOX"
-    #endif
-    #if WEBUI_IMAGE == WEBUI_IMAGE_THERMOSTAT
-        "THERMOSTAT"
-    #endif
-    #if WEBUI_IMAGE == WEBUI_IMAGE_FULL
-        "FULL"
-    #endif
-    "";

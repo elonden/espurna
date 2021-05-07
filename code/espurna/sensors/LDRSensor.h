@@ -7,12 +7,11 @@
 
 #pragma once
 
-// Set ADC to TOUT pin
-#undef ADC_MODE_VALUE
-#define ADC_MODE_VALUE ADC_TOUT
 
-#include "Arduino.h"
 #include "AnalogSensor.h"
+extern "C" {
+	#include "../libs/fs_math.h"
+}
 
 #define LDR_GL5516		1
 #define LDR_GL5528		2
@@ -22,10 +21,6 @@
 #define LDR_GL5549		6
 #define LDR_OTHER		99
 
-extern "C" {
-	#include "../libs/fs_math.h"
-}
-
 class LDRSensor : public AnalogSensor {
 
 	public:
@@ -34,7 +29,7 @@ class LDRSensor : public AnalogSensor {
 		// Public
 		// ---------------------------------------------------------------------
 
-		LDRSensor(): AnalogSensor() {
+		LDRSensor() {
 			_count = 1;
 			_sensor_id = SENSOR_LDR_ID;
 		}
@@ -129,7 +124,7 @@ class LDRSensor : public AnalogSensor {
 		}
 
 		// Descriptive name of the slot # index
-		String slot(unsigned char index) {
+		String description(unsigned char index) {
 			return description();
 		}
 

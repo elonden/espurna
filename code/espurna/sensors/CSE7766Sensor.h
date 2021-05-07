@@ -8,12 +8,12 @@
 
 #pragma once
 
-#include "Arduino.h"
 #include "BaseSensor.h"
+#include "BaseEmonSensor.h"
 
 #include <SoftwareSerial.h>
 
-class CSE7766Sensor : public BaseSensor {
+class CSE7766Sensor : public BaseEmonSensor {
 
     public:
 
@@ -21,7 +21,7 @@ class CSE7766Sensor : public BaseSensor {
         // Public
         // ---------------------------------------------------------------------
 
-        CSE7766Sensor(): BaseSensor(), _data() {
+        CSE7766Sensor(): _data() {
             _count = 7;
             _sensor_id = SENSOR_CSE7766_ID;
         }
@@ -56,54 +56,64 @@ class CSE7766Sensor : public BaseSensor {
 
         // ---------------------------------------------------------------------
 
-        void expectedCurrent(double expected) {
+        void expectedCurrent(double expected) override {
             if ((expected > 0) && (_current > 0)) {
                 _ratioC = _ratioC * (expected / _current);
             }
         }
 
-        void expectedVoltage(unsigned int expected) {
+        void expectedVoltage(unsigned int expected) override {
             if ((expected > 0) && (_voltage > 0)) {
                 _ratioV = _ratioV * (expected / _voltage);
             }
         }
 
-        void expectedPower(unsigned int expected) {
+        void expectedPower(unsigned int expected) override {
             if ((expected > 0) && (_active > 0)) {
                 _ratioP = _ratioP * (expected / _active);
             }
         }
 
-        void setCurrentRatio(double value) {
+        double defaultCurrentRatio() const override {
+            return 1.0;
+        }
+
+        double defaultVoltageRatio() const override {
+            return 1.0;
+        }
+
+        double defaultPowerRatio() const override {
+            return 1.0;
+        }
+
+        void setCurrentRatio(double value) override {
             _ratioC = value;
         };
 
-        void setVoltageRatio(double value) {
+        void setVoltageRatio(double value) override {
             _ratioV = value;
         };
 
-        void setPowerRatio(double value) {
+        void setPowerRatio(double value) override {
             _ratioP = value;
         };
 
-        double getCurrentRatio() {
+        double getCurrentRatio() override {
             return _ratioC;
         };
 
-        double getVoltageRatio() {
+        double getVoltageRatio() override {
             return _ratioV;
         };
 
-        double getPowerRatio() {
+        double getPowerRatio() override {
             return _ratioP;
         };
 
-        void resetRatios() {
-            _ratioC = _ratioV = _ratioP = 1.0;
-        }
-
-        void resetEnergy(double value = 0) {
-            _energy = value;
+        void resetRatios() override {
+            _ratioC = defaultCurrentRatio();
+            _ratioV = defaultVoltageRatio();
+            _ratioP = defaultPowerRatio();
         }
 
         // ---------------------------------------------------------------------
@@ -113,14 +123,20 @@ class CSE7766Sensor : public BaseSensor {
         // Initialization method, must be idempotent
         void begin() {
 
+            resetRatios();
+
             if (!_dirty) return;
 
             if (_serial) delete _serial;
 
-            if (1 == _pin_rx) {
+            if (3 == _pin_rx) {
                 Serial.begin(CSE7766_BAUDRATE);
+            } else if (13 == _pin_rx) {
+                Serial.begin(CSE7766_BAUDRATE);
+                Serial.flush();
+                Serial.swap();
             } else {
-                _serial = new SoftwareSerial(_pin_rx, SW_SERIAL_UNUSED_PIN, _inverted, 32);
+                _serial = new SoftwareSerial(_pin_rx, -1, _inverted);
                 _serial->enableIntTx(false);
                 _serial->begin(CSE7766_BAUDRATE);
             }
@@ -133,7 +149,7 @@ class CSE7766Sensor : public BaseSensor {
         // Descriptive name of the sensor
         String description() {
             char buffer[28];
-            if (1 == _pin_rx) {
+            if (_serial_is_hardware()) {
                 snprintf(buffer, sizeof(buffer), "CSE7766 @ HwSerial");
             } else {
                 snprintf(buffer, sizeof(buffer), "CSE7766 @ SwSerial(%u,NULL)", _pin_rx);
@@ -142,7 +158,7 @@ class CSE7766Sensor : public BaseSensor {
         }
 
         // Descriptive name of the slot # index
-        String slot(unsigned char index) {
+        String description(unsigned char index) {
             return description();
         };
 
@@ -176,7 +192,7 @@ class CSE7766Sensor : public BaseSensor {
             if (index == 3) return _reactive;
             if (index == 4) return _voltage * _current;
             if (index == 5) return ((_voltage > 0) && (_current > 0)) ? 100 * _active / _voltage / _current : 100;
-            if (index == 6) return _energy;
+            if (index == 6) return getEnergy();
             return 0;
         }
 
@@ -234,10 +250,10 @@ class CSE7766Sensor : public BaseSensor {
             if ((_data[0] & 0xFC) > 0xF0) {
                 _error = SENSOR_ERROR_OTHER;
                 #if SENSOR_DEBUG
-                    if (0xF1 == _data[0] & 0xF1) DEBUG_MSG("[SENSOR] CSE7766: Abnormal coefficient storage area\n");
-                    if (0xF2 == _data[0] & 0xF2) DEBUG_MSG("[SENSOR] CSE7766: Power cycle exceeded range\n");
-                    if (0xF4 == _data[0] & 0xF4) DEBUG_MSG("[SENSOR] CSE7766: Current cycle exceeded range\n");
-                    if (0xF8 == _data[0] & 0xF8) DEBUG_MSG("[SENSOR] CSE7766: Voltage cycle exceeded range\n");
+                    if (0xF1 == (_data[0] & 0xF1)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Abnormal coefficient storage area\n"));
+                    if (0xF2 == (_data[0] & 0xF2)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Power cycle exceeded range\n"));
+                    if (0xF4 == (_data[0] & 0xF4)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Current cycle exceeded range\n"));
+                    if (0xF8 == (_data[0] & 0xF8)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Voltage cycle exceeded range\n"));
                 #endif
                 return;
             }
@@ -286,16 +302,21 @@ class CSE7766Sensor : public BaseSensor {
             }
 
             // Calculate energy
-            unsigned int difference;
-            static unsigned int cf_pulses_last = 0;
-            unsigned int cf_pulses = _data[21] << 8 | _data[22];
+            uint32_t cf_pulses = _data[21] << 8 | _data[22];
+
+            static uint32_t cf_pulses_last = 0;
             if (0 == cf_pulses_last) cf_pulses_last = cf_pulses;
+
+            uint32_t difference;
             if (cf_pulses < cf_pulses_last) {
                 difference = cf_pulses + (0xFFFF - cf_pulses_last) + 1;
             } else {
                 difference = cf_pulses - cf_pulses_last;
             }
-            _energy += difference * (float) _coefP / 1000000.0;
+
+            _energy[0] += sensor::Ws {
+                static_cast<uint32_t>(difference * (float) _coefP / 1000000.0)
+            };
             cf_pulses_last = cf_pulses;
 
         }
@@ -348,8 +369,12 @@ class CSE7766Sensor : public BaseSensor {
 
         // ---------------------------------------------------------------------
 
+        bool _serial_is_hardware() {
+            return (3 == _pin_rx) || (13 == _pin_rx);
+        }
+
         bool _serial_available() {
-            if (1 == _pin_rx) {
+            if (_serial_is_hardware()) {
                 return Serial.available();
             } else {
                 return _serial->available();
@@ -357,7 +382,7 @@ class CSE7766Sensor : public BaseSensor {
         }
 
         void _serial_flush() {
-            if (1 == _pin_rx) {
+            if (_serial_is_hardware()) {
                 return Serial.flush();
             } else {
                 return _serial->flush();
@@ -365,7 +390,7 @@ class CSE7766Sensor : public BaseSensor {
         }
 
         uint8_t _serial_read() {
-            if (1 == _pin_rx) {
+            if (_serial_is_hardware()) {
                 return Serial.read();
             } else {
                 return _serial->read();
@@ -374,7 +399,7 @@ class CSE7766Sensor : public BaseSensor {
 
         // ---------------------------------------------------------------------
 
-        unsigned int _pin_rx = CSE7766_PIN;
+        int _pin_rx = CSE7766_RX_PIN;
         bool _inverted = CSE7766_PIN_INVERSE;
         SoftwareSerial * _serial = NULL;
 
@@ -382,11 +407,10 @@ class CSE7766Sensor : public BaseSensor {
         double _reactive = 0;
         double _voltage = 0;
         double _current = 0;
-        double _energy = 0;
 
-        double _ratioV = 1.0;
-        double _ratioC = 1.0;
-        double _ratioP = 1.0;
+        double _ratioV;
+        double _ratioC;
+        double _ratioP;
 
         unsigned char _data[24];
 

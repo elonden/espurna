@@ -7,10 +7,10 @@
 
 #pragma once
 
-#include "Arduino.h"
 #include "BaseSensor.h"
+#include "BaseEmonSensor.h"
 
-class ECH1560Sensor : public BaseSensor {
+class ECH1560Sensor : public BaseEmonSensor {
 
     public:
 
@@ -18,7 +18,7 @@ class ECH1560Sensor : public BaseSensor {
         // Public
         // ---------------------------------------------------------------------
 
-        ECH1560Sensor(): BaseSensor(), _data() {
+        ECH1560Sensor(): _data() {
             _count = 3;
             _sensor_id = SENSOR_ECH1560_ID;
         }
@@ -60,12 +60,6 @@ class ECH1560Sensor : public BaseSensor {
         }
 
         // ---------------------------------------------------------------------
-
-        void resetEnergy(double value = 0) {
-            _energy = value;
-        }
-
-        // ---------------------------------------------------------------------
         // Sensor API
         // ---------------------------------------------------------------------
 
@@ -91,19 +85,19 @@ class ECH1560Sensor : public BaseSensor {
         // Descriptive name of the sensor
         String description() {
             char buffer[35];
-            snprintf(buffer, sizeof(buffer), "ECH1560 (CLK,SDO) @ GPIO(%u,%u)", _clk, _miso);
+            snprintf(buffer, sizeof(buffer), "ECH1560 (CLK,SDO) @ GPIO(%hhu,%hhu)", _clk, _miso);
             return String(buffer);
         }
 
         // Descriptive name of the slot # index
-        String slot(unsigned char index) {
+        String description(unsigned char index) {
             return description();
         };
 
         // Address of the sensor (it could be the GPIO or I2C address)
         String address(unsigned char index) {
             char buffer[6];
-            snprintf(buffer, sizeof(buffer), "%u:%u", _clk, _miso);
+            snprintf(buffer, sizeof(buffer), "%hhu:%hhu", _clk, _miso);
             return String(buffer);
         }
 
@@ -121,14 +115,11 @@ class ECH1560Sensor : public BaseSensor {
             if (index == 0) return _current;
             if (index == 1) return _voltage;
             if (index == 2) return _apparent;
-            if (index == 3) return _energy;
+            if (index == 3) return getEnergy();
             return 0;
         }
 
-        void ICACHE_RAM_ATTR handleInterrupt(unsigned char gpio) {
-
-            UNUSED(gpio);
-
+        void ICACHE_RAM_ATTR handleInterrupt(unsigned char) {
             // if we are trying to find the sync-time (CLK goes high for 1-2ms)
             if (_dosync == false) {
 
@@ -270,7 +261,9 @@ class ECH1560Sensor : public BaseSensor {
 
                 static unsigned long last = 0;
                 if (last > 0) {
-                    _energy += (_apparent * (millis() - last) / 1000);
+                    _energy[0] += sensor::Ws {
+                        static_cast<uint32_t>(_apparent * (millis() - last) / 1000)
+                    };
                 }
                 last = millis();
 
@@ -301,7 +294,6 @@ class ECH1560Sensor : public BaseSensor {
         double _apparent = 0;
         double _voltage = 0;
         double _current = 0;
-        double _energy = 0;
 
         unsigned char _data[24];
 

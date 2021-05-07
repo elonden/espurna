@@ -1,43 +1,60 @@
 // =============================================================================
-// SENSORS - General data
+// SENSORS - General configuration
 // =============================================================================
 
+#pragma once
+
+#ifndef SENSOR_DEBUG
 #define SENSOR_DEBUG                        0               // Debug sensors
+#endif
 
+#ifndef SENSOR_READ_INTERVAL
 #define SENSOR_READ_INTERVAL                6               // Read data from sensors every 6 seconds
+#endif
+
+#ifndef SENSOR_READ_MIN_INTERVAL
 #define SENSOR_READ_MIN_INTERVAL            1               // Minimum read interval
+#endif
+
+#ifndef SENSOR_READ_MAX_INTERVAL
 #define SENSOR_READ_MAX_INTERVAL            3600            // Maximum read interval
+#endif
+
+#ifndef SENSOR_INIT_INTERVAL
 #define SENSOR_INIT_INTERVAL                10000           // Try to re-init non-ready sensors every 10s
+#endif
 
+#ifndef SENSOR_REPORT_EVERY
 #define SENSOR_REPORT_EVERY                 10              // Report every this many readings
-#define SENSOR_REPORT_MIN_EVERY             1               // Minimum every value
-#define SENSOR_REPORT_MAX_EVERY             60              // Maximum
+#endif
 
+#ifndef SENSOR_REPORT_MIN_EVERY
+#define SENSOR_REPORT_MIN_EVERY             1               // Minimum every value
+#endif
+
+#ifndef SENSOR_REPORT_MAX_EVERY
+#define SENSOR_REPORT_MAX_EVERY             60              // Maximum
+#endif
+
+#ifndef SENSOR_USE_INDEX
 #define SENSOR_USE_INDEX                    0               // Use the index in topic (i.e. temperature/0)
+#endif
                                                             // even if just one sensor (0 for backwards compatibility)
 
 #ifndef SENSOR_POWER_CHECK_STATUS
 #define SENSOR_POWER_CHECK_STATUS           1               // If set to 1 the reported power/current/energy will be 0 if the relay[0] is OFF
 #endif
 
-#ifndef SENSOR_TEMPERATURE_CORRECTION
-#define SENSOR_TEMPERATURE_CORRECTION       0.0             // Offset correction
-#endif
-
 #ifndef TEMPERATURE_MIN_CHANGE
 #define TEMPERATURE_MIN_CHANGE              0.0             // Minimum temperature change to report
 #endif
 
-#ifndef SENSOR_HUMIDITY_CORRECTION
-#define SENSOR_HUMIDITY_CORRECTION          0.0             // Offset correction
-#endif
-
 #ifndef HUMIDITY_MIN_CHANGE
-#define HUMIDITY_MIN_CHANGE                 0               // Minimum humidity change to report
+#define HUMIDITY_MIN_CHANGE                 0.0             // Minimum humidity change to report
 #endif
 
 #ifndef ENERGY_MAX_CHANGE
-#define ENERGY_MAX_CHANGE                   0               // Maximum energy change to report (if >0 it will allways report when delta(E) is greater than this)
+#define ENERGY_MAX_CHANGE                   0.0             // Maximum energy change to report (if >0 it will allways report when delta(E) is greater than this)
 #endif
 
 #ifndef SENSOR_SAVE_EVERY
@@ -52,18 +69,25 @@
 #define SENSOR_ADDRESS_TOPIC                "address"       // Topic to publish sensor addresses
 
 
-#ifndef SENSOR_TEMPERATURE_UNITS
-#define SENSOR_TEMPERATURE_UNITS            TMP_CELSIUS     // Temperature units (TMP_CELSIUS | TMP_FAHRENHEIT)
+// -----------------------------------------------------------------------------
+// Magnitude offset correction
+// -----------------------------------------------------------------------------
+
+#ifndef SENSOR_TEMPERATURE_CORRECTION
+#define SENSOR_TEMPERATURE_CORRECTION       0.0
 #endif
 
-#ifndef SENSOR_ENERGY_UNITS
-#define SENSOR_ENERGY_UNITS                 ENERGY_JOULES   // Energy units (ENERGY_JOULES | ENERGY_KWH)
+#ifndef SENSOR_HUMIDITY_CORRECTION
+#define SENSOR_HUMIDITY_CORRECTION          0.0
 #endif
 
-#ifndef SENSOR_POWER_UNITS
-#define SENSOR_POWER_UNITS                  POWER_WATTS     // Power units (POWER_WATTS | POWER_KILOWATTS)
+#ifndef SENSOR_PRESSURE_CORRECTION
+#define SENSOR_PRESSURE_CORRECTION          0.0
 #endif
 
+#ifndef SENSOR_LUX_CORRECTION
+#define SENSOR_LUX_CORRECTION               0.0
+#endif
 
 // =============================================================================
 // Specific data for each sensor
@@ -248,8 +272,9 @@
 #define CSE7766_SUPPORT                 0
 #endif
 
-#ifndef CSE7766_PIN
-#define CSE7766_PIN                     1       // TX pin from the CSE7766
+#ifndef CSE7766_RX_PIN
+#define CSE7766_RX_PIN                  3      // RX pin connected to the CSE7766
+                                               // As we never transmit anything, this is the only pin used
 #endif
 
 #ifndef CSE7766_PIN_INVERSE
@@ -273,7 +298,7 @@
 #endif
 
 #ifndef DIGITAL1_PIN
-#define DIGITAL1_PIN                     2
+#define DIGITAL1_PIN                    5
 #endif
 
 #ifndef DIGITAL1_PIN_MODE
@@ -285,7 +310,7 @@
 #endif
 
 #ifndef DIGITAL2_PIN
-#define DIGITAL2_PIN                     2
+#define DIGITAL2_PIN                     GPIO_NONE
 #endif
 
 #ifndef DIGITAL2_PIN_MODE
@@ -297,7 +322,7 @@
 #endif
 
 #ifndef DIGITAL3_PIN
-#define DIGITAL3_PIN                     2
+#define DIGITAL3_PIN                     GPIO_NONE
 #endif
 
 #ifndef DIGITAL3_PIN_MODE
@@ -309,7 +334,7 @@
 #endif
 
 #ifndef DIGITAL4_PIN
-#define DIGITAL4_PIN                     2
+#define DIGITAL4_PIN                     GPIO_NONE
 #endif
 
 #ifndef DIGITAL4_PIN_MODE
@@ -321,7 +346,7 @@
 #endif
 
 #ifndef DIGITAL5_PIN
-#define DIGITAL5_PIN                     2
+#define DIGITAL5_PIN                     GPIO_NONE
 #endif
 
 #ifndef DIGITAL5_PIN_MODE
@@ -333,7 +358,7 @@
 #endif
 
 #ifndef DIGITAL6_PIN
-#define DIGITAL6_PIN                     2
+#define DIGITAL6_PIN                     GPIO_NONE
 #endif
 
 #ifndef DIGITAL6_PIN_MODE
@@ -345,7 +370,7 @@
 #endif
 
 #ifndef DIGITAL7_PIN
-#define DIGITAL7_PIN                     2
+#define DIGITAL7_PIN                     GPIO_NONE
 #endif
 
 #ifndef DIGITAL7_PIN_MODE
@@ -357,7 +382,7 @@
 #endif
 
 #ifndef DIGITAL8_PIN
-#define DIGITAL8_PIN                     2
+#define DIGITAL8_PIN                     GPIO_NONE
 #endif
 
 #ifndef DIGITAL8_PIN_MODE
@@ -403,7 +428,7 @@
 #endif
 
 #ifndef EMON_CURRENT_RATIO
-#define EMON_CURRENT_RATIO              30          // Current ratio in the clamp (30A/1V)
+#define EMON_CURRENT_RATIO              30.0        // Current ratio in the clamp (30A/1V)
 #endif
 
 #ifndef EMON_REPORT_CURRENT
@@ -428,7 +453,9 @@
 #define EMON_ADC121_SUPPORT             0       // Do not build support by default
 #endif
 
+#ifndef EMON_ADC121_I2C_ADDRESS
 #define EMON_ADC121_I2C_ADDRESS         0x00    // 0x00 means auto
+#endif
 
 //------------------------------------------------------------------------------
 // Energy Monitor based on ADS1X15
@@ -439,7 +466,10 @@
 #define EMON_ADS1X15_SUPPORT            0       // Do not build support by default
 #endif
 
+#ifndef EMON_ADS1X15_I2C_ADDRESS
 #define EMON_ADS1X15_I2C_ADDRESS        0x00    // 0x00 means auto
+#endif
+
 #define EMON_ADS1X15_TYPE               ADS1X15_CHIP_ADS1115
 #define EMON_ADS1X15_GAIN               ADS1X15_REG_CONFIG_PGA_4_096V
 #define EMON_ADS1X15_MASK               0x0F    // A0=1 A1=2 A2=4 A3=8
@@ -462,13 +492,8 @@
 #define EVENTS_SUPPORT                  0       // Do not build with counter support by default
 #endif
 
-#ifndef EVENTS1_TRIGGER
-#define EVENTS1_TRIGGER                  1       // 1 to trigger callback on events,
-                                                // 0 to only count them and report periodically
-#endif
-
 #ifndef EVENTS1_PIN
-#define EVENTS1_PIN                      2       // GPIO to monitor
+#define EVENTS1_PIN                      5       // GPIO to monitor
 #endif
 
 #ifndef EVENTS1_PIN_MODE
@@ -483,13 +508,8 @@
 #define EVENTS1_DEBOUNCE                 50      // Do not register events within less than 50 millis
 #endif
 
-#ifndef EVENTS2_TRIGGER
-#define EVENTS2_TRIGGER                  1       // 1 to trigger callback on events,
-                                                // 0 to only count them and report periodically
-#endif
-
 #ifndef EVENTS2_PIN
-#define EVENTS2_PIN                      2       // GPIO to monitor
+#define EVENTS2_PIN                      GPIO_NONE       // GPIO to monitor
 #endif
 
 #ifndef EVENTS2_PIN_MODE
@@ -504,13 +524,8 @@
 #define EVENTS2_DEBOUNCE                 50      // Do not register events within less than 50 millis
 #endif
 
-#ifndef EVENTS3_TRIGGER
-#define EVENTS3_TRIGGER                  1       // 1 to trigger callback on events,
-                                                // 0 to only count them and report periodically
-#endif
-
 #ifndef EVENTS3_PIN
-#define EVENTS3_PIN                      2       // GPIO to monitor
+#define EVENTS3_PIN                      GPIO_NONE       // GPIO to monitor
 #endif
 
 #ifndef EVENTS3_PIN_MODE
@@ -525,13 +540,8 @@
 #define EVENTS3_DEBOUNCE                 50      // Do not register events within less than 50 millis
 #endif
 
-#ifndef EVENTS4_TRIGGER
-#define EVENTS4_TRIGGER                  1       // 1 to trigger callback on events,
-                                                // 0 to only count them and report periodically
-#endif
-
 #ifndef EVENTS4_PIN
-#define EVENTS4_PIN                      2       // GPIO to monitor
+#define EVENTS4_PIN                      GPIO_NONE       // GPIO to monitor
 #endif
 
 #ifndef EVENTS4_PIN_MODE
@@ -546,13 +556,8 @@
 #define EVENTS4_DEBOUNCE                 50      // Do not register events within less than 50 millis
 #endif
 
-#ifndef EVENTS5_TRIGGER
-#define EVENTS5_TRIGGER                  1       // 1 to trigger callback on events,
-                                                // 0 to only count them and report periodically
-#endif
-
 #ifndef EVENTS5_PIN
-#define EVENTS5_PIN                      2       // GPIO to monitor
+#define EVENTS5_PIN                      GPIO_NONE       // GPIO to monitor
 #endif
 
 #ifndef EVENTS5_PIN_MODE
@@ -567,13 +572,8 @@
 #define EVENTS5_DEBOUNCE                 50      // Do not register events within less than 50 millis
 #endif
 
-#ifndef EVENTS6_TRIGGER
-#define EVENTS6_TRIGGER                  1       // 1 to trigger callback on events,
-                                                // 0 to only count them and report periodically
-#endif
-
 #ifndef EVENTS6_PIN
-#define EVENTS6_PIN                      2       // GPIO to monitor
+#define EVENTS6_PIN                      GPIO_NONE       // GPIO to monitor
 #endif
 
 #ifndef EVENTS6_PIN_MODE
@@ -588,13 +588,8 @@
 #define EVENTS6_DEBOUNCE                 50      // Do not register events within less than 50 millis
 #endif
 
-#ifndef EVENTS7_TRIGGER
-#define EVENTS7_TRIGGER                  1       // 1 to trigger callback on events,
-                                                // 0 to only count them and report periodically
-#endif
-
 #ifndef EVENTS7_PIN
-#define EVENTS7_PIN                      2       // GPIO to monitor
+#define EVENTS7_PIN                      GPIO_NONE       // GPIO to monitor
 #endif
 
 #ifndef EVENTS7_PIN_MODE
@@ -609,13 +604,8 @@
 #define EVENTS7_DEBOUNCE                 50      // Do not register events within less than 50 millis
 #endif
 
-#ifndef EVENTS8_TRIGGER
-#define EVENTS8_TRIGGER                  1       // 1 to trigger callback on events,
-                                                // 0 to only count them and report periodically
-#endif
-
 #ifndef EVENTS8_PIN
-#define EVENTS8_PIN                      2       // GPIO to monitor
+#define EVENTS8_PIN                      GPIO_NONE       // GPIO to monitor
 #endif
 
 #ifndef EVENTS8_PIN_MODE
@@ -640,7 +630,7 @@
 #endif
 
 #ifndef GEIGER_PIN
-#define GEIGER_PIN                      D1       // GPIO to monitor "D1" => "GPIO5"
+#define GEIGER_PIN                      5       // D1
 #endif
 
 #ifndef GEIGER_PIN_MODE
@@ -710,15 +700,15 @@
 #endif
 
 #ifndef HLW8012_CURRENT_RATIO
-#define HLW8012_CURRENT_RATIO           0       // Set to 0 to use factory defaults
+#define HLW8012_CURRENT_RATIO           0.0       // Set to 0.0 to use factory defaults
 #endif
 
 #ifndef HLW8012_VOLTAGE_RATIO
-#define HLW8012_VOLTAGE_RATIO           0       // Set to 0 to use factory defaults
+#define HLW8012_VOLTAGE_RATIO           0.0       // Set to 0.0 to use factory defaults
 #endif
 
 #ifndef HLW8012_POWER_RATIO
-#define HLW8012_POWER_RATIO             0       // Set to 0 to use factory defaults
+#define HLW8012_POWER_RATIO             0.0       // Set to 0.0 to use factory defaults
 #endif
 
 #ifndef HLW8012_USE_INTERRUPTS
@@ -740,43 +730,39 @@
 // LDR sensor
 // Enable support by passing LDR_SUPPORT=1 build flag
 //------------------------------------------------------------------------------
- 
-#ifndef SENSOR_LUX_CORRECTION
-#define SENSOR_LUX_CORRECTION           0.0     // Offset correction
-#endif
 
 #ifndef LDR_SUPPORT
 #define LDR_SUPPORT                     0
 #endif
- 
+
 #ifndef LDR_SAMPLES
 #define LDR_SAMPLES                     10      // Number of samples
 #endif
- 
+
 #ifndef LDR_DELAY
 #define LDR_DELAY                       0       // Delay between samples in micros
 #endif
- 
+
 #ifndef LDR_TYPE
 #define LDR_TYPE                        LDR_GL5528
 #endif
- 
+
 #ifndef LDR_ON_GROUND
 #define LDR_ON_GROUND                   true
 #endif
- 
+
 #ifndef LDR_RESISTOR
 #define LDR_RESISTOR                    10000   // Resistance
 #endif
- 
+
 #ifndef LDR_MULTIPLICATION
 #define LDR_MULTIPLICATION              32017200
 #endif
- 
+
 #ifndef LDR_POWER
 #define LDR_POWER                       1.5832
 #endif
- 
+
 //------------------------------------------------------------------------------
 // MHZ19 CO2 sensor
 // Enable support by passing MHZ19_SUPPORT=1 build flag
@@ -940,19 +926,20 @@
 #endif
 
 #ifndef PZEM004T_USE_SOFT
-#define PZEM004T_USE_SOFT               0       // Software serial is not working atm, use hardware serial
+#define PZEM004T_USE_SOFT               0       // By default, use Hardware serial with GPIO15 (TX) and GPIO13 (RX)
 #endif
 
 #ifndef PZEM004T_RX_PIN
-#define PZEM004T_RX_PIN                 13      // Software serial RX GPIO (if PZEM004T_USE_SOFT == 1)
+#define PZEM004T_RX_PIN                 13      // Serial RX GPIO (if PZEM004T_USE_SOFT == 1, creates a SoftwareSerial object)
 #endif
 
 #ifndef PZEM004T_TX_PIN
-#define PZEM004T_TX_PIN                 15      // Software serial TX GPIO (if PZEM004T_USE_SOFT == 1)
+#define PZEM004T_TX_PIN                 15      // Serial TX GPIO (if PZEM004T_USE_SOFT == 1, creates a SoftwareSerial object)
 #endif
 
 #ifndef PZEM004T_HW_PORT
 #define PZEM004T_HW_PORT                Serial  // Hardware serial port (if PZEM004T_USE_SOFT == 0)
+                                                // ESP8266: Serial1 does not allow receiving data, no point in changing this setting
 #endif
 
 #ifndef PZEM004T_ADDRESSES
@@ -965,6 +952,36 @@
 
 #ifndef PZEM004T_MAX_DEVICES
 #define PZEM004T_MAX_DEVICES            3
+#endif
+
+//------------------------------------------------------------------------------
+// PZEM004T **V3.0** based power monitor
+// Enable support by passing PZEM004TV30_SUPPORT=1 build flag
+//------------------------------------------------------------------------------
+
+#ifndef PZEM004TV30_SUPPORT
+#define PZEM004TV30_SUPPORT                0
+#endif
+
+#ifndef PZEM004TV30_ADDRESS
+#define PZEM004TV30_ADDRESS                0xF8    // Default: factory value
+#endif
+
+#ifndef PZEM004TV30_USE_SOFT
+#define PZEM004TV30_USE_SOFT               0       // By default, use Hardware serial with GPIO15 (TX) and GPIO13 (RX)
+                                                   // (but, make sure that DEBUG_SERIAL_SUPPORT is set to 0)
+#endif
+
+#ifndef PZEM004TV30_RX_PIN
+#define PZEM004TV30_RX_PIN                 13      // Serial RX GPIO (if PZEM004T_USE_SOFT == 1, creates a SoftwareSerial object)
+#endif
+
+#ifndef PZEM004TV30_TX_PIN
+#define PZEM004TV30_TX_PIN                 15      // Serial TX GPIO (if PZEM004T_USE_SOFT == 1, creates a SoftwareSerial object)
+#endif
+
+#ifndef PZEM004TV30_DEBUG
+#define PZEM004TV30_DEBUG                  0
 #endif
 
 //------------------------------------------------------------------------------
@@ -1028,6 +1045,19 @@
 #endif
 
 //------------------------------------------------------------------------------
+// HDC1080 / 831R temperature & humidity sensor
+// Enable support by passing HDC1080_SUPPORT=1 build flag
+//------------------------------------------------------------------------------
+
+#ifndef HDC1080_SUPPORT
+#define HDC1080_SUPPORT                  0
+#endif
+
+#ifndef HDC1080_ADDRESS
+#define HDC1080_ADDRESS                  0x00    // 0x00 means auto
+#endif
+
+//------------------------------------------------------------------------------
 // Sonar
 // Enable support by passing SONAR_SUPPORT=1 build flag
 //------------------------------------------------------------------------------
@@ -1051,6 +1081,23 @@
 #ifndef SONAR_ITERATIONS
 #define SONAR_ITERATIONS               5                             // Number of iterations to ping for
 #endif                                                               // error correction.
+
+//------------------------------------------------------------------------------
+// T6613 CO2 sensor
+// Enable support by passing T6613_SUPPORT=1 build flag
+//------------------------------------------------------------------------------
+
+#ifndef T6613_SUPPORT
+#define T6613_SUPPORT                   0
+#endif
+
+#ifndef T6613_RX_PIN
+#define T6613_RX_PIN                    4
+#endif
+
+#ifndef T6613_TX_PIN
+#define T6613_TX_PIN                    5
+#endif
 
 //------------------------------------------------------------------------------
 // TMP3X analog temperature sensor
@@ -1145,6 +1192,11 @@
 // MAX6675
 // Enable support by passing MAX6675_SUPPORT=1 build flag
 //------------------------------------------------------------------------------
+
+#ifndef MAX6675_SUPPORT
+#define MAX6675_SUPPORT                              0
+#endif
+
 #ifndef MAX6675_CS_PIN
 #define MAX6675_CS_PIN                               13
 #endif
@@ -1178,51 +1230,54 @@
 #define EZOPH_SYNC_INTERVAL          1000    // Amount of time (in ms) sync new readings.
 #endif
 
-// =============================================================================
-// Sensor helpers configuration - can't move to dependencies.h
-// =============================================================================
+// -----------------------------------------------------------------------------
+// ADE7953 Shelly Sensor
+// Enable support by passing ADE7953_SUPPORT=1 build flag
+// -----------------------------------------------------------------------------
 
-#ifndef SENSOR_SUPPORT
-#define SENSOR_SUPPORT ( \
-    AM2320_SUPPORT || \
-    ANALOG_SUPPORT || \
-    BH1750_SUPPORT || \
-    BMP180_SUPPORT || \
-    BMX280_SUPPORT || \
-    CSE7766_SUPPORT || \
-    DALLAS_SUPPORT || \
-    DHT_SUPPORT || \
-    DIGITAL_SUPPORT || \
-    ECH1560_SUPPORT || \
-    EMON_ADC121_SUPPORT || \
-    EMON_ADS1X15_SUPPORT || \
-    EMON_ANALOG_SUPPORT || \
-    EVENTS_SUPPORT || \
-    EZOPH_SUPPORT || \
-    GEIGER_SUPPORT || \
-    GUVAS12SD_SUPPORT || \
-    HLW8012_SUPPORT || \
-    LDR_SUPPORT || \
-    MAX6675_SUPPORT || \
-    MICS2710_SUPPORT || \
-    MICS5525_SUPPORT || \
-    MHZ19_SUPPORT || \
-    NTC_SUPPORT || \
-    SDS011_SUPPORT || \
-    SENSEAIR_SUPPORT || \
-    PMSX003_SUPPORT || \
-    PZEM004T_SUPPORT || \
-    PULSEMETER_SUPPORT || \
-    SHT3X_I2C_SUPPORT || \
-    SI7021_SUPPORT || \
-    SONAR_SUPPORT || \
-    TMP3X_SUPPORT || \
-    V9261F_SUPPORT || \
-    VEML6075_SUPPORT || \
-    VL53L1X_SUPPORT || \
-    ADE7953_SUPPORT \
-)
+#ifndef ADE7953_SUPPORT
+#define ADE7953_SUPPORT                  0
 #endif
+
+#ifndef ADE7953_ADDRESS
+#define ADE7953_ADDRESS                  0x38
+#endif
+
+// -----------------------------------------------------------------------------
+// SI1145 UV Sensor over I2C
+// Enable support by passing SI1145_SUPPORT=1 build flag
+// -----------------------------------------------------------------------------
+
+#ifndef SI1145_SUPPORT
+#define SI1145_SUPPORT                   0
+#endif
+
+#ifndef SI1145_ADDRESS
+#define SI1145_ADDRESS                   0x60
+#endif
+
+//------------------------------------------------------------------------------
+// BME680
+// Enable support by passing BME680_SUPPORT=1 build flag
+//------------------------------------------------------------------------------
+
+#ifndef BME680_SUPPORT
+#define BME680_SUPPORT                              0
+#endif
+
+#ifndef BME680_I2C_ADDRESS
+#define BME680_I2C_ADDRESS                          0x00                                   // 0x00 means auto
+#endif
+
+#ifndef BME680_BSEC_CONFIG
+#define BME680_BSEC_CONFIG                          BME680_BSEC_CONFIG_GENERIC_33V_3S_4D   // BSEC config config value. By default, 3.3V as supply voltage,
+#endif                                                                                     // 3 seconds as maximum time between bsec_sensor_control` calls
+                                                                                           // and 4 days as the time considered for background calibration.
+
+#ifndef BME680_STATE_SAVE_INTERVAL
+#define BME680_STATE_SAVE_INTERVAL                  0                                      // How frequently (in milliseconds) should state be stored in
+#endif                                                                                     // non-volatile memory. A common value would be every 6h or
+                                                                                           // 360 * 60 * 1000 milliseconds. By default, this is disabled.
 
 // -----------------------------------------------------------------------------
 // ADC
@@ -1244,183 +1299,113 @@
 #define I2C_USE_BRZO                    0       // Use brzo_i2c library or standard Wire
 
 #ifndef I2C_SDA_PIN
-#define I2C_SDA_PIN                     SDA     // SDA GPIO (Sonoff => 4)
+#define I2C_SDA_PIN                     SDA     // SDA GPIO (Sonoff => 4, using Arduino Core variant definition as default)
 #endif
 
 #ifndef I2C_SCL_PIN
-#define I2C_SCL_PIN                     SCL     // SCL GPIO (Sonoff => 14)
+#define I2C_SCL_PIN                     SCL     // SCL GPIO (Sonoff => 14, using Arduino Core variant definition as default)
 #endif
 
-#define I2C_CLOCK_STRETCH_TIME          200     // BRZO clock stretch time
-#define I2C_SCL_FREQUENCY               1000    // BRZO SCL frequency
+#ifndef I2C_CLOCK_STRETCH_TIME
+#define I2C_CLOCK_STRETCH_TIME          200UL     // BRZO clock stretch time
+#endif
+
+#ifndef I2C_SCL_FREQUENCY
+#define I2C_SCL_FREQUENCY               1000UL    // BRZO SCL frequency
+#endif
+
+#ifndef I2C_CLEAR_BUS
 #define I2C_CLEAR_BUS                   0       // Clear I2C bus on boot
+#endif
+
+#ifndef I2C_PERFORM_SCAN
 #define I2C_PERFORM_SCAN                1       // Perform a bus scan on boot
-
-// -----------------------------------------------------------------------------
-// ADE7953 Shelly Sensor
-// Enable support by passing ADE7953_SUPPORT=1 build flag
-// -----------------------------------------------------------------------------
-
-#ifndef ADE7953_SUPPORT
-#define ADE7953_SUPPORT                  0
 #endif
 
-#ifndef ADE7953_ADDRESS
-#define ADE7953_ADDRESS                  0x38
+// =============================================================================
+// Configuration helpers
+// =============================================================================
+
+// I2C support when sensor needs it
+#if ( ADE7953_SUPPORT || \
+    AM2320_SUPPORT || \
+    BH1750_SUPPORT || \
+    BMP180_SUPPORT || \
+    BMX280_SUPPORT || \
+    BME680_SUPPORT || \
+    EMON_ADC121_SUPPORT || \
+    EMON_ADS1X15_SUPPORT || \
+    SHT3X_I2C_SUPPORT || \
+    SI1145_SUPPORT || \
+    SI7021_SUPPORT || \
+    VEML6075_SUPPORT || \
+    VL53L1X_SUPPORT || \
+    HDC1080_SUPPORT \
+)
+#undef I2C_SUPPORT
+#define I2C_SUPPORT                 1
 #endif
 
-//--------------------------------------------------------------------------------
-// Class loading
-//--------------------------------------------------------------------------------
-
-#if SENSOR_SUPPORT
-
-#if AM2320_SUPPORT
-    #include "../sensors/AM2320Sensor.h"
+// Can't have ADC reading something else
+#if ( ANALOG_SUPPORT || \
+    EMON_ANALOG_SUPPORT || \
+    GUVAS12SD_SUPPORT || \
+    LDR_SUPPORT || \
+    MICS2710_SUPPORT || \
+    MICS5525_SUPPORT || \
+    NTC_SUPPORT || \
+    TMP3X_SUPPORT \
+)
+#undef ADC_MODE_VALUE
+#define ADC_MODE_VALUE ADC_TOUT
 #endif
 
-#if ANALOG_SUPPORT
-    #include "../sensors/AnalogSensor.h"
+// Provide generic way to detect sensor presence
+#ifndef SENSOR_SUPPORT
+#define SENSOR_SUPPORT ( \
+    ADE7953_SUPPORT || \
+    AM2320_SUPPORT || \
+    ANALOG_SUPPORT || \
+    BH1750_SUPPORT || \
+    BMP180_SUPPORT || \
+    BME680_SUPPORT || \
+    BMX280_SUPPORT || \
+    CSE7766_SUPPORT || \
+    DALLAS_SUPPORT || \
+    DHT_SUPPORT || \
+    DIGITAL_SUPPORT || \
+    ECH1560_SUPPORT || \
+    EMON_ADC121_SUPPORT || \
+    EMON_ADS1X15_SUPPORT || \
+    EMON_ANALOG_SUPPORT || \
+    EVENTS_SUPPORT || \
+    EZOPH_SUPPORT || \
+    GEIGER_SUPPORT || \
+    GUVAS12SD_SUPPORT || \
+    HLW8012_SUPPORT || \
+    LDR_SUPPORT || \
+    MAX6675_SUPPORT || \
+    MHZ19_SUPPORT || \
+    MICS2710_SUPPORT || \
+    MICS5525_SUPPORT || \
+    NTC_SUPPORT || \
+    PMSX003_SUPPORT || \
+    PULSEMETER_SUPPORT || \
+    PZEM004T_SUPPORT || \
+    SDS011_SUPPORT || \
+    SENSEAIR_SUPPORT || \
+    SHT3X_I2C_SUPPORT || \
+    SI1145_SUPPORT || \
+    SI7021_SUPPORT || \
+    SONAR_SUPPORT || \
+    T6613_SUPPORT || \
+    THERMOSTAT_SUPPORT || \
+    TMP3X_SUPPORT || \
+    V9261F_SUPPORT || \
+    VEML6075_SUPPORT || \
+    VL53L1X_SUPPORT || \
+    HDC1080_SUPPORT || \
+    PZEM004TV30_SUPPORT \
+)
 #endif
 
-#if BH1750_SUPPORT
-    #include "../sensors/BH1750Sensor.h"
-#endif
-
-#if BMP180_SUPPORT
-    #include "../sensors/BMP180Sensor.h"
-#endif
-
-#if BMX280_SUPPORT
-    #include "../sensors/BMX280Sensor.h"
-#endif
-
-#if CSE7766_SUPPORT
-    #include "../sensors/CSE7766Sensor.h"
-#endif
-
-#if DALLAS_SUPPORT
-    #include "../sensors/DallasSensor.h"
-#endif
-
-#if DHT_SUPPORT
-    #include "../sensors/DHTSensor.h"
-#endif
-
-#if DIGITAL_SUPPORT
-    #include "../sensors/DigitalSensor.h"
-#endif
-
-#if ECH1560_SUPPORT
-    #include "../sensors/ECH1560Sensor.h"
-#endif
-
-#if EMON_ADC121_SUPPORT
-    #include "../sensors/EmonADC121Sensor.h"
-#endif
-
-#if EMON_ADS1X15_SUPPORT
-    #include "../sensors/EmonADS1X15Sensor.h"
-#endif
-
-#if EMON_ANALOG_SUPPORT
-    #include "../sensors/EmonAnalogSensor.h"
-#endif
-
-#if EVENTS_SUPPORT
-    #include "../sensors/EventSensor.h"
-#endif
-
-#if EZOPH_SUPPORT
-    #include "../sensors/EZOPHSensor.h"
-#endif
-
-#if GEIGER_SUPPORT
-    #include "../sensors/GeigerSensor.h"
-#endif
-
-#if GUVAS12SD_SUPPORT
-    #include "../sensors/GUVAS12SDSensor.h"
-#endif
-
-#if HLW8012_SUPPORT
-    #include "../sensors/HLW8012Sensor.h"
-#endif
-
-#if LDR_SUPPORT
-    #include "../sensors/LDRSensor.h"
-#endif
-
-#if MAX6675_SUPPORT
-    #include "../sensors/MAX6675Sensor.h"
-#endif 
-
-#if MICS2710_SUPPORT
-    #include "../sensors/MICS2710Sensor.h"
-#endif
-
-#if MICS5525_SUPPORT
-    #include "../sensors/MICS5525Sensor.h"
-#endif
-
-#if MHZ19_SUPPORT
-    #include "../sensors/MHZ19Sensor.h"
-#endif
-
-#if NTC_SUPPORT
-    #include "../sensors/NTCSensor.h"
-#endif
-
-#if SDS011_SUPPORT
-    #include "../sensors/SDS011Sensor.h"
-#endif
-
-#if SENSEAIR_SUPPORT
-    #include "../sensors/SenseAirSensor.h"
-#endif
-
-#if PMSX003_SUPPORT
-    #include "../sensors/PMSX003Sensor.h"
-#endif
-
-#if PULSEMETER_SUPPORT
-    #include "../sensors/PulseMeterSensor.h"
-#endif
-
-#if PZEM004T_SUPPORT
-    #include "../sensors/PZEM004TSensor.h"
-#endif
-
-#if SHT3X_I2C_SUPPORT
-    #include "../sensors/SHT3XI2CSensor.h"
-#endif
-
-#if SI7021_SUPPORT
-    #include "../sensors/SI7021Sensor.h"
-#endif
-
-#if SONAR_SUPPORT
-    #include "../sensors/SonarSensor.h"
-#endif
-
-#if TMP3X_SUPPORT
-    #include "../sensors/TMP3XSensor.h"
-#endif
-
-#if V9261F_SUPPORT
-    #include "../sensors/V9261FSensor.h"
-#endif
-
-#if VEML6075_SUPPORT
-    #include "../sensors/VEML6075Sensor.h"
-#endif
-
-#if VL53L1X_SUPPORT
-    #include "../sensors/VL53L1XSensor.h"
-#endif
-
-#if ADE7953_SUPPORT
-    #include "../sensors/ADE7953Sensor.h"
-#endif
-
-#endif // SENSOR_SUPPORT

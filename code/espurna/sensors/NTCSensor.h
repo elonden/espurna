@@ -7,13 +7,8 @@
 
 #pragma once
 
-// Set ADC to TOUT pin
-#undef ADC_MODE_VALUE
-#define ADC_MODE_VALUE ADC_TOUT
 
-#include "Arduino.h"
 #include "AnalogSensor.h"
-
 extern "C" {
     #include "../libs/fs_math.h"
 }
@@ -26,7 +21,7 @@ class NTCSensor : public AnalogSensor {
         // Public
         // ---------------------------------------------------------------------
 
-        NTCSensor(): AnalogSensor() {
+        NTCSensor() {
             _count = 1;
             _sensor_id = SENSOR_NTC_ID;
         }
@@ -65,7 +60,7 @@ class NTCSensor : public AnalogSensor {
         }
 
         // Descriptive name of the slot # index
-        String slot(unsigned char index) {
+        String description(unsigned char index) {
             return description();
         }
 

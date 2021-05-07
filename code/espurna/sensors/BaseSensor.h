@@ -3,102 +3,155 @@
 // Copyright (C) 2017-2019 by Xose Pérez <xose dot perez at gmail dot com>
 // -----------------------------------------------------------------------------
 
-#if SENSOR_SUPPORT
-
 #pragma once
 
 #include <Arduino.h>
-#include <ArduinoJson.h>
 
-#define SENSOR_ERROR_OK             0       // No error
-#define SENSOR_ERROR_OUT_OF_RANGE   1       // Result out of sensor range
-#define SENSOR_ERROR_WARM_UP        2       // Sensor is warming-up
-#define SENSOR_ERROR_TIMEOUT        3       // Response from sensor timed out
-#define SENSOR_ERROR_UNKNOWN_ID     4       // Sensor did not report a known ID
-#define SENSOR_ERROR_CRC            5       // Sensor data corrupted
-#define SENSOR_ERROR_I2C            6       // Wrong or locked I2C address
-#define SENSOR_ERROR_GPIO_USED      7       // The GPIO is already in use
-#define SENSOR_ERROR_CALIBRATION    8       // Calibration error or Not calibrated
-#define SENSOR_ERROR_OTHER          99      // Any other error
-
-typedef std::function<void(unsigned char, double)> TSensorCallback;
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 
 class BaseSensor {
+public:
+    // Must implement as virtual.
+    // Allows inhereting class correctly call it's own destructor through the ~BaseSensor()
+    virtual ~BaseSensor() {
+    }
 
-    public:
+    // Initialization method, must be idempotent
+    virtual void begin() {
+    }
 
-        // Constructor
-        BaseSensor() {}
+    // Loop-like method, call it in your main loop
+    virtual void tick() {
+    }
 
-        // Destructor
-        ~BaseSensor() {}
+    // Pre-read hook (usually to populate registers with up-to-date data)
+    virtual void pre() {
+    }
 
-        // Initialization method, must be idempotent
-        virtual void begin() {}
+    // Post-read hook (usually to reset things)
+    virtual void post() {
+    }
 
-        // Loop-like method, call it in your main loop
-        virtual void tick() {}
+    // Type of sensor
+    virtual unsigned char type() {
+        return sensor::type::Base;
+    }
 
-        // Pre-read hook (usually to populate registers with up-to-date data)
-        virtual void pre() {}
+    // Number of decimals for a unit (or -1 for default)
+    virtual signed char decimals(sensor::Unit) {
+        return -1;
+    }
 
-        // Post-read hook (usually to reset things)
-        virtual void post() {}
+    // Generic calibration
+    virtual void calibrate() {
+    };
 
-        // Descriptive name of the sensor
-        virtual String description() = 0;
+    // Sensor ID
+    virtual unsigned char getID() {
+        return _sensor_id;
+    };
 
-        // Address of the sensor (it could be the GPIO or I2C address)
-        virtual String address(unsigned char index) = 0;
+    // Return status (true if no errors)
+    bool status() {
+        return 0 == _error;
+    }
 
-        // Descriptive name of the slot # index
-        virtual String slot(unsigned char index) = 0;
+    // Return ready status (true for ready)
+    bool ready() {
+        return _ready;
+    }
 
-        // Type for slot # index
-        virtual unsigned char type(unsigned char index) = 0;
+    // Return sensor last internal error
+    int error() {
+        return _error;
+    }
 
-	    // Number of decimals for a magnitude (or -1 for default)
-	    virtual signed char decimals(unsigned char type) { return -1; }
+    // Number of available slots
+    unsigned char count() {
+        return _count;
+    }
 
-        // Current value for slot # index
-        virtual double value(unsigned char index) = 0;
+    // Convert slot # index to a magnitude # index
+    virtual unsigned char local(unsigned char slot) {
+        return 0;
+    }
 
-        // Retrieve current instance configuration
-        virtual void getConfig(JsonObject& root) {};
+    // Specify units attached to magnitudes
+    virtual sensor::Unit units(unsigned char index) {
+        switch (type(index)) {
+        case MAGNITUDE_TEMPERATURE:
+            return sensor::Unit::Celcius;
+        case MAGNITUDE_HUMIDITY:
+        case MAGNITUDE_POWER_FACTOR:
+            return sensor::Unit::Percentage;
+        case MAGNITUDE_PRESSURE:
+            return sensor::Unit::Hectopascal;
+        case MAGNITUDE_CURRENT:
+            return sensor::Unit::Ampere;
+        case MAGNITUDE_VOLTAGE:
+            return sensor::Unit::Volt;
+        case MAGNITUDE_POWER_ACTIVE:
+            return sensor::Unit::Watt;
+        case MAGNITUDE_POWER_APPARENT:
+            return sensor::Unit::Voltampere;
+        case MAGNITUDE_POWER_REACTIVE:
+            return sensor::Unit::VoltampereReactive;
+        case MAGNITUDE_ENERGY_DELTA:
+            return sensor::Unit::Joule;
+        case MAGNITUDE_ENERGY:
+            return sensor::Unit::KilowattHour;
+        case MAGNITUDE_PM1dot0:
+        case MAGNITUDE_PM2dot5:
+            return sensor::Unit::MicrogrammPerCubicMeter;
+        case MAGNITUDE_CO:
+        case MAGNITUDE_CO2:
+        case MAGNITUDE_NO2:
+        case MAGNITUDE_VOC:
+            return sensor::Unit::PartsPerMillion;
+        case MAGNITUDE_LUX:
+            return sensor::Unit::Lux;
+        case MAGNITUDE_RESISTANCE:
+            return sensor::Unit::Ohm;
+        case MAGNITUDE_HCHO:
+            return sensor::Unit::MilligrammPerCubicMeter;
+        case MAGNITUDE_GEIGER_CPM:
+            return sensor::Unit::CountsPerMinute;
+        case MAGNITUDE_GEIGER_SIEVERT:
+            return sensor::Unit::MicrosievertPerHour;
+        case MAGNITUDE_DISTANCE:
+            return sensor::Unit::Meter;
+        case MAGNITUDE_FREQUENCY:
+            return sensor::Unit::Hertz;
+        case MAGNITUDE_PH:
+            return sensor::Unit::Ph;
+        default:
+            break;
+        }
 
-        // Save current instance configuration
-        virtual void setConfig(JsonObject& root) {};
+        return sensor::Unit::None;
+    }
 
-        // Load the configuration manifest
-        static void manifest(JsonArray& root) {};
+    // Descriptive name of the sensor
+    virtual String description() = 0;
 
-        // Sensor ID
-        unsigned char getID() { return _sensor_id; };
+    // Descriptive name of the slot # index
+    virtual String description(unsigned char index) = 0;
 
-        // Return status (true if no errors)
-        bool status() { return 0 == _error; }
+    // Address of the sensor (it could be the GPIO or I2C address)
+    virtual String address(unsigned char index) = 0;
 
-        // Return ready status (true for ready)
-        bool ready() { return _ready; }
+    // Type for slot # index
+    virtual unsigned char type(unsigned char index) = 0;
 
-        // Return sensor last internal error
-        int error() { return _error; }
+    // Current value for slot # index
+    virtual double value(unsigned char index) = 0;
 
-        // Number of available slots
-        unsigned char count() { return _count; }
-
-        // Hook for event callback
-        void onEvent(TSensorCallback fn) { _callback = fn; };
-
-    protected:
-
-        TSensorCallback _callback = NULL;
-        unsigned char _sensor_id = 0x00;
-        int _error = 0;
-        bool _dirty = true;
-        unsigned char _count = 0;
-        bool _ready = false;
-
+protected:
+    unsigned char _sensor_id = 0;
+    int _error = 0;
+    bool _dirty = true;
+    unsigned char _count = 0;
+    bool _ready = false;
 };
-
-#endif

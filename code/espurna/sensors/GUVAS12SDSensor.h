@@ -8,12 +8,9 @@
 
 #pragma once
 
-// Set ADC to TOUT pin
-#undef ADC_MODE_VALUE
-#define ADC_MODE_VALUE ADC_TOUT
 
-#include "Arduino.h"
 #include "BaseSensor.h"
+#include "../utils.h"
 
 // http://www.eoc-inc.com/genicom/GUVA-S12SD.pdf
 //
@@ -38,13 +35,13 @@ class GUVAS12SDSensor : public BaseSensor {
         // Public
         // ---------------------------------------------------------------------
 
-        GUVAS12SDSensor(): BaseSensor() {
+        GUVAS12SDSensor() {
             _count = 1;
             _sensor_id = SENSOR_GUVAS12SD_ID;
         }
 
         ~GUVAS12SDSensor() {
-            if (_previous != GPIO_NONE) gpioReleaseLock(_previous);
+            gpioUnlock(_gpio);
         }
 
         // ---------------------------------------------------------------------
@@ -67,9 +64,12 @@ class GUVAS12SDSensor : public BaseSensor {
         void begin() {
 
             // Manage GPIO lock
-            if (_previous != GPIO_NONE) gpioReleaseLock(_previous);
+            if (_previous != GPIO_NONE) {
+                gpioUnlock(_previous);
+            }
+
             _previous = GPIO_NONE;
-            if (!gpioGetLock(_gpio)) {
+            if (!gpioLock(_gpio)) {
                 _error = SENSOR_ERROR_GPIO_USED;
                 return;
             }
@@ -88,12 +88,12 @@ class GUVAS12SDSensor : public BaseSensor {
         // Descriptive name of the sensor
         String description() {
             char buffer[18];
-            snprintf(buffer, sizeof(buffer), "GUVAS12SD @ GPIO%d", _gpio);
+            snprintf(buffer, sizeof(buffer), "GUVAS12SD @ GPIO%hhu", _gpio);
             return String(buffer);
         }
 
         // Descriptive name of the slot # index
-        String slot(unsigned char index) {
+        String description(unsigned char index) {
             return description();
         };
 

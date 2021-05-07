@@ -3,11 +3,11 @@
 
 Referencing current branch in github README.md [1]
 This pre-commit hook [2] updates the README.md file's
-Travis badge with the current branch. Based on [4].
+CI badge [3] with the current branch. Based on [4].
 
 [1] http://stackoverflow.com/questions/18673694/referencing-current-branch-in-github-readme-md
 [2] http://www.git-scm.com/book/en/v2/Customizing-Git-Git-Hooks
-[3] https://docs.travis-ci.com/user/status-images/
+[3] https://github.com/xoseperez/espurna/actions
 [4] https://gist.github.com/dandye/dfe0870a6a1151c89ed9
 
 Copy this file to .git/hooks/
@@ -18,6 +18,7 @@ import os
 import re
 import string
 import sys
+import argparse
 from subprocess import call, check_output
 
 try:
@@ -93,8 +94,7 @@ def espurna_get_version(base, version_h="code/espurna/config/version.h"):
 
 
 TEMPLATES = {
-    "![travis]": "[![travis](https://travis-ci.org/{USER}/{REPO}.svg?branch={BRANCH})]"
-                 "(https://travis-ci.org/{USER}/{REPO})\n",
+    "![ci]": "![ci](https://github.com/{USER}/{REPO}/workflows/ESPurna%20build/badge.svg?branch={BRANCH})\n"
     "![version]": "[![version](https://img.shields.io/badge/version-{VERSION:escape_hyphen}-brightgreen.svg)]"
                   "(CHANGELOG.md)\n",
     "![branch]": "[![branch](https://img.shields.io/badge/branch-{BRANCH:escape_hyphen}-orange.svg)]"
@@ -104,14 +104,22 @@ TEMPLATES = {
 README = "README.md"
 
 if __name__ == "__main__":
-    base = os.getcwd()
 
+    base = os.getcwd()
     user, repo = git_parse_remote()
+
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("-b", "--branch", help="git branch name", default=git_branch())
+    parser.add_argument("-u", "--user", help="git user name", default=user)
+    parser.add_argument("-r", "--repo", help="git repo name", default=repo)
+    parser.add_argument("-v", "--version", help="ESPurna version", default=espurna_get_version(base))
+    args = parser.parse_args()
+
     fmt = {
-        "USER": user,
-        "REPO": repo,
-        "BRANCH": git_branch(),
-        "VERSION": espurna_get_version(base),
+        "USER": args.user,
+        "REPO": args.repo,
+        "BRANCH": args.branch,
+        "VERSION": args.version
     }
 
     formatter = CustomFormatter()

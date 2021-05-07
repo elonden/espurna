@@ -7,15 +7,11 @@
 
 #pragma once
 
-#undef I2C_SUPPORT
-#define I2C_SUPPORT 1 // Explicitly request I2C support.
+#include <VL53L1X.h>
 
-
-#include "Arduino.h"
 #include "I2CSensor.h"
-#include "VL53L1X.h"
 
-class VL53L1XSensor : public I2CSensor {
+class VL53L1XSensor : public I2CSensor<> {
 
     public:
 
@@ -23,7 +19,7 @@ class VL53L1XSensor : public I2CSensor {
         // Public
         // ---------------------------------------------------------------------
 
-        VL53L1XSensor(): I2CSensor() {
+        VL53L1XSensor() {
             _count = 1;
             _sensor_id = SENSOR_VL53L1X_ID;
             _vl53l1x = new VL53L1X();
@@ -83,7 +79,7 @@ class VL53L1XSensor : public I2CSensor {
         }
 
         // Descriptive name of the slot # index
-        String slot(unsigned char index) {
+        String description(unsigned char index) {
             return description();
         };
 

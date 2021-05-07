@@ -7,10 +7,10 @@
 
 #pragma once
 
-#include "Arduino.h"
 #include "BaseSensor.h"
+#include "BaseEmonSensor.h"
 
-class PulseMeterSensor : public BaseSensor {
+class PulseMeterSensor : public BaseEmonSensor {
 
     public:
 
@@ -18,7 +18,7 @@ class PulseMeterSensor : public BaseSensor {
         // Public
         // ---------------------------------------------------------------------
 
-        PulseMeterSensor(): BaseSensor() {
+        PulseMeterSensor() {
             _count = 2;
             _sensor_id = SENSOR_PULSEMETER_ID;
         }
@@ -27,20 +27,12 @@ class PulseMeterSensor : public BaseSensor {
             _enableInterrupts(false);
         }
 
-        void resetEnergy(double value = 0) {
-            _energy = value;
-        }
-
         // ---------------------------------------------------------------------
 
         void setGPIO(unsigned char gpio) {
             if (_gpio == gpio) return;
             _gpio = gpio;
             _dirty = true;
-        }
-
-        void setEnergyRatio(unsigned long ratio) {
-            if (ratio > 0) _ratio = ratio;
         }
 
         void setInterruptMode(unsigned char interrupt_mode) {
@@ -55,10 +47,6 @@ class PulseMeterSensor : public BaseSensor {
 
         unsigned char getGPIO() {
             return _gpio;
-        }
-
-        unsigned long getEnergyRatio() {
-            return _ratio;
         }
 
         unsigned char getInterruptMode() {
@@ -90,7 +78,7 @@ class PulseMeterSensor : public BaseSensor {
         }
 
         // Descriptive name of the slot # index
-        String slot(unsigned char index) {
+        String description(unsigned char index) {
             return description();
         };
 
@@ -107,9 +95,9 @@ class PulseMeterSensor : public BaseSensor {
             unsigned long pulses = _pulses - _previous_pulses;
             _previous_pulses = _pulses;
 
-            unsigned long _energy_delta = 1000 * 3600 * pulses / _ratio;
-            _energy += _energy_delta;
-            if (lapse > 0) _active = 1000 * _energy_delta / lapse;
+            sensor::Ws delta = 1000 * 3600 * pulses / getEnergyRatio();
+            if (lapse > 0) _active = 1000 * delta.value / lapse;
+            _energy[0] += delta;
 
         }
 
@@ -123,7 +111,7 @@ class PulseMeterSensor : public BaseSensor {
         // Current value for slot # index
         double value(unsigned char index) {
             if (index == 0) return _active;
-            if (index == 1) return _energy;
+            if (index == 1) return _energy[0].asDouble();
             return 0;
         }
 
@@ -169,11 +157,9 @@ class PulseMeterSensor : public BaseSensor {
 
         unsigned char _previous = GPIO_NONE;
         unsigned char _gpio = GPIO_NONE;
-        unsigned long _ratio = PULSEMETER_ENERGY_RATIO;
         unsigned long _debounce = PULSEMETER_DEBOUNCE;
 
         double _active = 0;
-        double _energy = 0;
 
         volatile unsigned long _pulses = 0;
         unsigned long _previous_pulses = 0;

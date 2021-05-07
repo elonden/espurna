@@ -24,9 +24,11 @@ version=$(grep -E '^#define APP_VERSION' $version_file | awk '{print $3}' | sed 
 script_build_environments=true
 script_build_webui=true
 
-if ${TRAVIS:-false}; then
-    git_revision=${TRAVIS_COMMIT::7}
-    git_tag=${TRAVIS_TAG}
+release_mode=false
+
+if ${CI:-false}; then
+    git_revision=${GITHUB_SHA::8}
+    git_tag=$(echo -n $GITHUB_REF | grep '^refs/tags/' | cut -d '/' -f 2)
 elif is_git; then
     git_revision=$(git rev-parse --short HEAD)
     git_tag=$(git tag --contains HEAD)
@@ -42,26 +44,12 @@ if [[ -n $git_tag ]]; then
     trap "git checkout -- $version_file" EXIT
 fi
 
-par_build=false
-par_thread=${BUILDER_THREAD:-0}
-par_total_threads=${BUILDER_TOTAL_THREADS:-4}
-if [ ${par_thread} -ne ${par_thread} -o \
-    ${par_total_threads} -ne ${par_total_threads} ]; then
-    echo "Parallel threads should be a number."
-    exit
-fi
-if [ ${par_thread} -ge ${par_total_threads} ]; then
-    echo "Current thread is greater than total threads. Doesn't make sense"
-    exit
-fi
-
 # Available environments
 list_envs() {
-    grep env: platformio.ini | sed 's/\[env:\(.*\)\]/\1/g'
+    grep -E '^\[env:' platformio.ini | sed 's/\[env:\(.*\)\]/\1/g'
 }
 
-travis=$(list_envs | grep travis | sort)
-available=$(list_envs | grep -Ev -- '-ota$|-ssl$|^travis' | sort)
+available=$(list_envs | grep -Ev -- '-ota$|-ssl$|-secure-client.*$|^esp8266-.*base$' | sort)
 
 # Functions
 print_available() {
@@ -81,20 +69,6 @@ print_environments() {
 }
 
 set_default_environments() {
-    # Hook to build in parallel when using travis
-    if [[ "${TRAVIS_BUILD_STAGE_NAME}" = "Release" ]] && ${par_build}; then
-        environments=$(echo ${available} | \
-            awk -v par_thread=${par_thread} -v par_total_threads=${par_total_threads} \
-            '{ for (i = 1; i <= NF; i++) if (++j % par_total_threads == par_thread ) print $i; }')
-        return
-    fi
-
-    # Only build travisN
-    if [[ "${TRAVIS_BUILD_STAGE_NAME}" = "Test" ]]; then
-        environments=$travis
-        return
-    fi
-
     # Fallback to all available environments
     environments=$available
 }
@@ -112,11 +86,21 @@ build_webui() {
     echo "Building web interface..."
     node node_modules/gulp/bin/gulp.js || exit
 
-    # TODO: do something if webui files are different
-    # for now, just print in travis log
-    if ${TRAVIS:-false}; then
+    # TODO: do something if webui files are different?
+    if ${CI:-false}; then
         git --no-pager diff --stat
     fi
+}
+
+build_release() {
+    echo "--------------------------------------------------------------"
+    echo "Building release images..."
+    python scripts/generate_release_sh.py \
+        --ignore secure-client \
+        --version $version \
+        --destination $destination/espurna-$version > release.sh
+    bash release.sh
+    echo "--------------------------------------------------------------"
 }
 
 build_environments() {
@@ -125,11 +109,11 @@ build_environments() {
     mkdir -p $destination/espurna-$version
 
     for environment in $environments; do
-        echo -n "* espurna-$version-$environment.bin --- "
+        echo "* espurna-$version-$environment.bin"
         platformio run --silent --environment $environment || exit 1
+        echo -n "SIZE:    "
         stat_bytes .pio/build/$environment/firmware.bin
-        [[ "${TRAVIS_BUILD_STAGE_NAME}" = "Test" ]] || \
-            mv .pio/build/$environment/firmware.bin $destination/espurna-$version/espurna-$version-$environment.bin
+        mv .pio/build/$environment/firmware.bin $destination/espurna-$version/espurna-$version-$environment.bin
     done
     echo "--------------------------------------------------------------"
 }
@@ -145,19 +129,16 @@ Options:
 
   -f VALUE    Filter build stage by name to skip it
               Supported VALUEs are "environments" and "webui"
-              Can be specified multiple times
+              Can be specified multiple times. 
+  -r          Release mode
+              Generate build list through an external script.
   -l          Print available environments
   -d VALUE    Destination to move .bin files after building environments
-  -p          Enable parallel build
-              Depends on following exported variables:
-                BUILDER_THREAD=<number>        (default 0...4)
-                BUILDER_TOTAL_THREADS=<number> (default 4)
-              When building platformio environments, will only pick every <BUILDER_THREAD>th
   -h          Display this message
 EOF
 }
 
-while getopts "f:lpd:h" opt; do
+while getopts "f:lrpd:h" opt; do
   case $opt in
     f)
         case "$OPTARG" in
@@ -169,11 +150,11 @@ while getopts "f:lpd:h" opt; do
         print_available
         exit
         ;;
-    p)
-        par_build=true
-        ;;
     d)
         destination=$OPTARG
+        ;;
+    r)
+        release_mode=true
         ;;
     h)
         print_getopts_help
@@ -200,9 +181,10 @@ if $script_build_environments ; then
         set_default_environments
     fi
 
-    if ${CI:-false}; then
-        print_environments
+    if $release_mode ; then
+        build_release
+    else
+        build_environments
     fi
-
-    build_environments
 fi
+

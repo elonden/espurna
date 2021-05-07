@@ -19,23 +19,25 @@
 
 */
 
+#pragma once
+
+#include <Arduino.h>
 #include <core_version.h>
+#include <pgmspace.h>
+#include <spi_flash.h>
 
 #ifdef USE_CUSTOM_H
 #include "custom.h"
 #endif
 
+#include "buildtime.h"
 #include "version.h"
 #include "types.h"
 #include "arduino.h"
 #include "hardware.h"
-#include "defaults.h"
-#include "buildtime.h"
-#include "deprecated.h"
 #include "general.h"
+#include "defaults.h"
+#include "deprecated.h"
 #include "dependencies.h"
-#include "debug.h"
-#include "prototypes.h"
 #include "sensors.h"
 #include "webui.h"
-#include "progmem.h"

@@ -7,15 +7,11 @@
 
 #pragma once
 
-#undef I2C_SUPPORT
-#define I2C_SUPPORT 1 // Explicitly request I2C support.
+#include <SparkFun_VEML6075_Arduino_Library.h>
 
-
-#include "Arduino.h"
 #include "I2CSensor.h"
-#include "SparkFun_VEML6075_Arduino_Library.h"
 
-class VEML6075Sensor : public I2CSensor {
+class VEML6075Sensor : public I2CSensor<> {
 
     public:
 
@@ -23,7 +19,7 @@ class VEML6075Sensor : public I2CSensor {
         // Public
         // ---------------------------------------------------------------------
 
-        VEML6075Sensor(): I2CSensor() {
+        VEML6075Sensor() {
             _count = 3;
             _sensor_id = SENSOR_VEML6075_ID;
             _veml6075 = new VEML6075();
@@ -53,7 +49,7 @@ class VEML6075Sensor : public I2CSensor {
         }
 
         // Descriptive name of the slot # index
-        String slot(unsigned char index) {
+        String description(unsigned char index) {
             return description();
         };
 
