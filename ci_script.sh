@@ -6,17 +6,30 @@ cd code
 
 case "$1" in
 ("host")
-    cd test/ && pio test
+    # runs PIO unit tests, using the host compiler
+    # (see https://github.com/ThrowTheSwitch/Unity)
+    pushd test
+    pio test
+    popd
     ;;
 ("webui")
+    # TODO: both can only parse one file at a time
+    npm exec --no eslint html/custom.js
+    npm exec --no html-validate html/index.html
+    # checks whether the webui can be built
     ./build.sh -f environments
+    # TODO: gzip inserts an OS-dependant byte in the header, ref.
+    # - https://datatracker.ietf.org/doc/html/rfc1952
+    # - https://github.com/nodejs/node/blob/e46c680bf2b211bbd52cf959ca17ee98c7f657f5/deps/zlib/deflate.c#L901
+    # - windowBits description in the https://zlib.net/manual.html#Advanced
     git --no-pager diff --stat
     ;;
 ("build")
-    # shellcheck disable=SC2086
-    scripts/test_build.py -e "$TEST_ENV" $TEST_EXTRA_ARGS
+    # run generic build test with the specified environment as base
+    scripts/test_build.py -e $2
     ;;
 ("release")
+    # TODO: pending removal in favour of code/scripts/generate_release_sh.py
     ./build.sh -r
     ;;
 (*)

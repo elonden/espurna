@@ -95,6 +95,10 @@ bool _telnetClientsAuth[TELNET_MAX_CLIENTS];
 
 #if WEB_SUPPORT
 
+void _telnetWebSocketOnVisible(JsonObject& root) {
+    wsPayloadModule(root, "telnet");
+}
+
 bool _telnetWebSocketOnKeyCheck(const char * key, JsonVariant& value) {
     return (strncmp(key, "telnet", 6) == 0);
 }
@@ -139,11 +143,11 @@ void _telnetReverse(const char * host, uint16_t port) {
 
 #if MQTT_SUPPORT
 
-void _telnetReverseMQTTCallback(unsigned int type, const char * topic, const char * payload) {
+void _telnetReverseMQTTCallback(unsigned int type, const char* topic, char* payload) {
     if (type == MQTT_CONNECT_EVENT) {
         mqttSubscribe(MQTT_TOPIC_TELNET_REVERSE);
     } else if (type == MQTT_MESSAGE_EVENT) {
-        String t = mqttMagnitude((char *) topic);
+        String t = mqttMagnitude(topic);
 
         if (t.equals(MQTT_TOPIC_TELNET_REVERSE)) {
             String pl = String(payload);
@@ -495,6 +499,10 @@ void _telnetNewClient(AsyncClient* client) {
 // Public API
 // -----------------------------------------------------------------------------
 
+uint16_t telnetPort() {
+    return TELNET_PORT;
+}
+
 bool telnetConnected() {
     for (auto& client : _telnetClients) {
         if (client && client->connected()) return true;
@@ -540,7 +548,7 @@ void telnetSetup() {
 
     #if WEB_SUPPORT
         wsRegister()
-            .onVisible([](JsonObject& root) { root["telnetVisible"] = 1; })
+            .onVisible(_telnetWebSocketOnVisible)
             .onConnected(_telnetWebSocketOnConnected)
             .onKeyCheck(_telnetWebSocketOnKeyCheck);
     #endif

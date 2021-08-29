@@ -136,7 +136,7 @@ bool _idbWebSocketOnKeyCheck(const char * key, JsonVariant& value) {
 }
 
 void _idbWebSocketOnVisible(JsonObject& root) {
-    root["idbVisible"] = 1;
+    wsPayloadModule(root, "idb");
 }
 
 void _idbWebSocketOnConnected(JsonObject& root) {
@@ -293,11 +293,11 @@ void idbSetup() {
     #endif
 
     #if RELAY_SUPPORT
-        relaySetStatusChange(_idbSendStatus);
+        relayOnStatusChange(_idbSendStatus);
     #endif
 
     #if SENSOR_SUPPORT
-        sensorSetMagnitudeReport(_idbSendSensor);
+        sensorOnMagnitudeReport(_idbSendSensor);
     #endif
 
     espurnaRegisterReload(_idbConfigure);

@@ -98,7 +98,9 @@ bool _tspkWebSocketOnKeyCheck(const char * key, JsonVariant& value) {
 }
 
 void _tspkWebSocketOnVisible(JsonObject& root) {
-    root["tspkVisible"] = static_cast<unsigned char>(haveRelaysOrSensors());
+    if (haveRelaysOrSensors()) {
+        wsPayloadModule(root, "tspk");
+    }
 }
 
 void _tspkWebSocketOnConnected(JsonObject& root) {
@@ -457,7 +459,7 @@ void tspkSetup() {
     #endif
 
     #if RELAY_SUPPORT
-        relaySetStatusChange(_tspkRelayStatus);
+        relayOnStatusChange(_tspkRelayStatus);
     #endif
 
     DEBUG_MSG_P(PSTR("[THINGSPEAK] Async %s, SSL %s\n"),

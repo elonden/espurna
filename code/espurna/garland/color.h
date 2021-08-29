@@ -7,26 +7,30 @@ Inspired by https://github.com/Vasil-Pahomov/ArWs2812 (currently https://github.
 
 #pragma once
 
-#if GARLAND_SUPPORT
+class Color {
+public:
+    byte r = 0;
+    byte g = 0;
+    byte b = 0;
 
-#include <Arduino.h>
-#include <string>
+    Color() = default;
+    Color(const Color&) = default;
+    Color(Color&&) = default;
 
-struct Color
-{
-    byte r;
-    byte g;
-    byte b;
+    Color& operator=(const Color&) = default;
+    Color& operator=(Color&&) = default;
 
-    inline Color() : r(0), g(0), b(0) {}
+    bool operator==(const Color& other) const {
+        return (r == other.r) && (g == other.g) && (b == other.b);
+    }
 
     // allow construction from R, G, B
-    inline Color(uint8_t ir, uint8_t ig, uint8_t ib)
+    Color(uint8_t ir, uint8_t ig, uint8_t ib)
         : r(ir), g(ig), b(ib) {
     }
 
     // allow construction from 32-bit (really 24-bit) bit 0xRRGGBB color code
-    inline Color(uint32_t colorcode)
+    Color(uint32_t colorcode)
         : r((colorcode >> 16) & 0xFF), g((colorcode >> 8) & 0xFF), b((colorcode >> 0) & 0xFF) {
     }
 
@@ -103,8 +107,4 @@ struct Color
         sprintf(buf, "r=%hhu, g=%hhu, b=%hhu", r, g, b);
         return buf;
     }
-
-    friend bool operator== (const Color &c1, const Color &c2);
 };
-
-#endif // GARLAND_SUPPORT

@@ -56,7 +56,7 @@ Updated secure client support by Niek van der Maas < mail at niekvandermaas dot 
 #define MQTT_TOPIC_CMD              "cmd"
 #define MQTT_TOPIC_SCHEDULE         "schedule"
 
-using mqtt_callback_f = std::function<void(unsigned int type, const char * topic, char * payload)>;
+using mqtt_callback_f = std::function<void(unsigned int type, const char* topic, char* payload)>;
 using mqtt_pid_callback_f = std::function<void()>;
 
 void mqttHeartbeat(heartbeat::Callback);
@@ -65,8 +65,11 @@ void mqttRegister(mqtt_callback_f callback);
 void mqttOnPublish(uint16_t pid, mqtt_pid_callback_f);
 void mqttOnSubscribe(uint16_t pid, mqtt_pid_callback_f);
 
-String mqttTopic(const char * magnitude, bool is_set);
-String mqttTopic(const char * magnitude, unsigned int index, bool is_set);
+String mqttTopic(const String& magnitude, bool is_set);
+String mqttTopic(const char* magnitude, bool is_set);
+
+String mqttTopic(const String& magnitude, unsigned int index, bool is_set);
+String mqttTopic(const char* magnitude, unsigned int index, bool is_set);
 
 String mqttMagnitude(const char* topic);
 
@@ -97,9 +100,6 @@ void mqttEnqueue(const char* topic, const char* message);
 const String& mqttPayloadOnline();
 const String& mqttPayloadOffline();
 const char* mqttPayloadStatus(bool status);
-
-void mqttSetBroker(IPAddress ip, uint16_t port);
-void mqttSetBrokerIfNone(IPAddress ip, uint16_t port);
 
 void mqttEnabled(bool status);
 bool mqttEnabled();

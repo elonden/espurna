@@ -21,11 +21,11 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #include "libs/WebSocketIncommingBuffer.h"
 
-AsyncWebSocket _ws("/ws");
-
 // -----------------------------------------------------------------------------
 // Periodic updates
 // -----------------------------------------------------------------------------
+
+namespace {
 
 uint32_t _ws_last_update = 0;
 
@@ -73,12 +73,19 @@ void _wsDoUpdate(const bool connected) {
     }
 }
 
+} // namespace
+
 // -----------------------------------------------------------------------------
 // WS callbacks
 // -----------------------------------------------------------------------------
 
+namespace {
+
+AsyncWebSocket _ws("/ws");
 std::queue<WsPostponedCallbacks> _ws_queue;
 ws_callbacks_t _ws_callbacks;
+
+} // namespace
 
 void wsPost(uint32_t client_id, ws_on_send_callback_f&& cb) {
     _ws_queue.emplace(client_id, std::move(cb));
@@ -96,10 +103,14 @@ void wsPost(const ws_on_send_callback_f& cb) {
     wsPost(0, cb);
 }
 
+namespace {
+
 template <typename T>
 void _wsPostCallbacks(uint32_t client_id, T&& cbs, WsPostponedCallbacks::Mode mode) {
     _ws_queue.emplace(client_id, std::forward<T>(cbs), mode);
 }
+
+} // namespace
 
 void wsPostAll(uint32_t client_id, ws_on_send_callback_list_t&& cbs) {
     _wsPostCallbacks(client_id, std::move(cbs), WsPostponedCallbacks::Mode::All);
@@ -135,27 +146,27 @@ void wsPostSequence(const ws_on_send_callback_list_t& cbs) {
 
 // -----------------------------------------------------------------------------
 
-ws_callbacks_t& ws_callbacks_t::onVisible(ws_on_send_callback_f cb) {
+ws_callbacks_t& ws_callbacks_t::onVisible(ws_callbacks_t::on_send_f cb) {
     on_visible.push_back(cb);
     return *this;
 }
 
-ws_callbacks_t& ws_callbacks_t::onConnected(ws_on_send_callback_f cb) {
+ws_callbacks_t& ws_callbacks_t::onConnected(ws_callbacks_t::on_send_f cb) {
     on_connected.push_back(cb);
     return *this;
 }
 
-ws_callbacks_t& ws_callbacks_t::onData(ws_on_send_callback_f cb) {
+ws_callbacks_t& ws_callbacks_t::onData(ws_callbacks_t::on_send_f cb) {
     on_data.push_back(cb);
     return *this;
 }
 
-ws_callbacks_t& ws_callbacks_t::onAction(ws_on_action_callback_f cb) {
+ws_callbacks_t& ws_callbacks_t::onAction(ws_callbacks_t::on_action_f cb) {
     on_action.push_back(cb);
     return *this;
 }
 
-ws_callbacks_t& ws_callbacks_t::onKeyCheck(ws_on_keycheck_callback_f cb) {
+ws_callbacks_t& ws_callbacks_t::onKeyCheck(ws_callbacks_t::on_keycheck_f cb) {
     on_keycheck.push_back(cb);
     return *this;
 }
@@ -163,6 +174,8 @@ ws_callbacks_t& ws_callbacks_t::onKeyCheck(ws_on_keycheck_callback_f cb) {
 // -----------------------------------------------------------------------------
 // WS authentication
 // -----------------------------------------------------------------------------
+
+namespace {
 
 constexpr size_t WsMaxClients { WS_MAX_CLIENTS };
 
@@ -219,15 +232,21 @@ bool _wsAuth(AsyncWebSocketClient* client) {
     return false;
 }
 
+} // namespace
+
 // -----------------------------------------------------------------------------
 // Debug
 // -----------------------------------------------------------------------------
 
+
 #if DEBUG_WEB_SUPPORT
 
-constexpr size_t WsDebugMessagesMax = 8;
+namespace {
 
+constexpr size_t WsDebugMessagesMax = 8;
 WsDebug _ws_debug(WsDebugMessagesMax);
+
+} // namespace
 
 void WsDebug::send(bool connected) {
     if (!connected && _flush) {
@@ -266,61 +285,105 @@ bool wsDebugSend(const char* prefix, const char* message) {
 
 #endif
 
+// -----------------------------------------------------------------------------
+// Store indexed key (key0, key1, etc.) from array
+// -----------------------------------------------------------------------------
+
+namespace {
+
 // Check the existing setting before saving it
 // TODO: this should know of the default values, somehow?
-// TODO: move webPort handling somewhere else?
 bool _wsStore(const String& key, const String& value) {
-
-    if (key == "webPort") {
-        if ((value.toInt() == 0) || (value.toInt() == 80)) {
-            return delSetting(key);
-        }
-    }
-
     if (!hasSetting(key) || value != getSetting(key)) {
         return setSetting(key, value);
     }
 
     return false;
-
 }
 
-// -----------------------------------------------------------------------------
-// Store indexed key (key0, key1, etc.) from array
-// -----------------------------------------------------------------------------
+bool _wsStore(const String& prefix, JsonArray& values) {
+    bool changed { false };
 
-bool _wsStore(const String& key, JsonArray& values) {
-
-    bool changed = false;
-
-    unsigned char index = 0;
+    size_t index { 0 };
     for (auto& element : values) {
         const auto value = element.as<String>();
-        auto setting = SettingsKey {key, index};
-        if (!hasSetting(setting) || value != getSetting(setting)) {
-            setSetting(setting, value);
+        const auto key = SettingsKey {prefix, index};
+
+        auto kv = settings::internal::get(key.value());
+        if (!kv || (value != kv.ref())) {
+            setSetting(key, value);
             changed = true;
         }
         ++index;
     }
 
-    // Delete further values
-    for (unsigned char next_index=index; next_index < SETTINGS_MAX_LIST_COUNT; ++next_index) {
-        if (!delSetting({key, next_index})) break;
+    // Remove every key with index greater than the array size
+    // TODO: should this be delegated to the modules, since they know better how much entities they could store?
+    constexpr size_t SettingsMaxListCount { SETTINGS_MAX_LIST_COUNT };
+    for (auto next_index = index; next_index < SettingsMaxListCount; ++next_index) {
+        if (!delSetting({prefix, next_index})) {
+            break;
+        }
         changed = true;
     }
 
     return changed;
-
 }
 
-bool _wsCheckKey(const String& key, JsonVariant& value) {
+// TODO: generate "accepted" keys in the initial phase of the connection?
+// TODO: is value ever used... by anything?
+bool _wsCheckKey(const char* key, JsonVariant& value) {
     for (auto& callback : _ws_callbacks.on_keycheck) {
-        if (callback(key.c_str(), value)) return true;
-        // TODO: remove this to call all OnKeyCheckCallbacks with the
-        // current key/value
+        if (callback(key, value)) {
+            return true;
+        }
     }
     return false;
+}
+
+bool _wsProcessAdminPass(JsonVariant& value) {
+    auto current = getAdminPass();
+    if (value.is<String>()) {
+        auto string = value.as<String>();
+        if (!current.equalsConstantTime(string)) {
+            setSetting("adminPass", string);
+            return true;
+        }
+    } else if (value.is<JsonArray&>()) {
+        JsonArray& values = value.as<JsonArray&>();
+        if (values.size() == 2) {
+            auto lhs = values[0].as<String>();
+            auto rhs = values[1].as<String>();
+            if ((lhs == rhs) && (!current.equalsConstantTime(lhs))) {
+                setSetting("adminPass", lhs);
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void _wsPostParse(uint32_t client_id, bool save, bool reload) {
+    if (save) {
+        saveSettings();
+        espurnaReload();
+
+        wsPost(client_id, [save, reload](JsonObject& root) {
+            if (reload) {
+                root["action"] = F("reload");
+            } else if (save) {
+                root["saved"] = true;
+            }
+            root["message"] = F("Changes saved");
+        });
+
+        return;
+    }
+
+    wsPost(client_id, [](JsonObject& root) {
+        root["message"] = F("No changes detected");
+    });
 }
 
 void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
@@ -403,30 +466,27 @@ void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
 
         DEBUG_MSG_P(PSTR("[WEBSOCKET] Parsing configuration data\n"));
 
-        String adminPass;
         bool save = false;
+        bool reload = false;
 
-        for (auto kv: config) {
-
+        for (auto& kv : config) {
             bool changed = false;
+
             String key = kv.key;
             JsonVariant& value = kv.value;
 
             if (key == "adminPass") {
-                if (!value.is<JsonArray&>()) continue;
-                JsonArray& values = value.as<JsonArray&>();
-                if (values.size() != 2) continue;
-                if (values[0].as<String>().equals(values[1].as<String>())) {
-                    String password = values[0].as<String>();
-                    if (password.length() > 0) {
-                        setSetting(key, password);
-                        save = true;
-                        wsSend_P(client_id, PSTR("{\"action\": \"reload\"}"));
-                    }
-                } else {
-                    wsSend_P(client_id, PSTR("{\"message\": \"Passwords do not match!\"}"));
+                if (_wsProcessAdminPass(value)) {
+                    save = true;
+                    reload = true;
+                    continue;
                 }
-                continue;
+            } else if (key == "webPort") {
+                if (value.as<int>() == 0) {
+                    continue;
+                } else if (value.as<int>() > static_cast<int>(std::numeric_limits<uint16_t>::max())) {
+                    continue;
+                }
             }
 #if NTP_SUPPORT
             else if (key == "ntpTZ") {
@@ -434,7 +494,7 @@ void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
             }
 #endif
 
-            if (!_wsCheckKey(key, value)) {
+            if (!_wsCheckKey(key.c_str(), value)) {
                 delSetting(key);
                 continue;
             }
@@ -450,28 +510,10 @@ void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
             if (changed) {
                 save = true;
             }
-
         }
 
-        // Save settings
-        if (save) {
-
-            // Callbacks
-            espurnaReload();
-
-            // Persist settings
-            saveSettings();
-
-            wsSend_P(client_id, PSTR("{\"saved\": true, \"message\": \"Changes saved.\"}"));
-
-        } else {
-
-            wsSend_P(client_id, PSTR("{\"message\": \"No changes detected.\"}"));
-
-        }
-
+        _wsPostParse(client_id, save, reload);
     }
-
 }
 
 bool _wsOnKeyCheck(const char * key, JsonVariant& value) {
@@ -553,6 +595,7 @@ void _wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTy
         DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u disconnected\n"), client->id());
         if (client->_tempObject) {
             delete (WebSocketIncommingBuffer *) client->_tempObject;
+            client->_tempObject = nullptr;
         }
         wifiApCheck();
 
@@ -573,11 +616,10 @@ void _wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTy
 
 }
 
-// TODO: make this generic loop method to queue important ws messages?
-//       or, if something uses ticker / async ctx to send messages,
-//       it needs a retry mechanism built into the callback object
 void _wsHandlePostponedCallbacks(bool connected) {
-
+    // TODO: make this generic loop method to queue important ws messages?
+    //       or, if something uses ticker / async ctx to send messages,
+    //       it needs a retry mechanism built into the callback object
     if (!connected && !_ws_queue.empty()) {
         _ws_queue.pop();
         return;
@@ -639,6 +681,8 @@ void _wsLoop() {
     #endif
 }
 
+} // namespace
+
 // -----------------------------------------------------------------------------
 // Public API
 // -----------------------------------------------------------------------------
@@ -649,6 +693,14 @@ bool wsConnected() {
 
 bool wsConnected(uint32_t client_id) {
     return _ws.hasClient(client_id);
+}
+
+void wsPayloadModule(JsonObject& root, const char* const name) {
+    const char* const key { "modulesVisible" };
+    JsonArray& modules = root.containsKey(key)
+        ? root[key]
+        : root.createNestedArray(key);
+    modules.add(name);
 }
 
 ws_callbacks_t& wsRegister() {

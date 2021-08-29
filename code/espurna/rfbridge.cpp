@@ -45,7 +45,7 @@ constexpr bool _rfb_transmit { true };
 
 std::forward_list<RfbCodeHandler> _rfb_code_handlers;
 
-void rfbSetCodeHandler(RfbCodeHandler handler) {
+void rfbOnCode(RfbCodeHandler handler) {
     _rfb_code_handlers.push_front(handler);
 }
 
@@ -337,22 +337,24 @@ void _rfbSendImpl(const RfbMessage& message);
 #if WEB_SUPPORT
 
 void _rfbWebSocketOnVisible(JsonObject& root) {
-    root["rfbVisible"] = 1;
+    wsPayloadModule(root, "rfb");
+#if RFB_PROVIDER == RFB_PROVIDER_RCSWITCH
+    wsPayloadModule(root, "rfbdirect");
+#endif
 }
 
 #if RELAY_SUPPORT
 
 void _rfbWebSocketSendCodeArray(JsonObject& root, size_t start, size_t size) {
     JsonObject& rfb = root.createNestedObject("rfb");
-    rfb["size"] = size;
     rfb["start"] = start;
 
-    JsonArray& on = rfb.createNestedArray("on");
-    JsonArray& off = rfb.createNestedArray("off");
+    JsonArray& codes = rfb.createNestedArray("codes");
 
     for (auto id = start; id < (start + size); ++id) {
-        on.add(rfbRetrieve(id, true));
-        off.add(rfbRetrieve(id, false));
+        JsonArray& pair = codes.createNestedArray();
+        pair.add(rfbRetrieve(id, false));
+        pair.add(rfbRetrieve(id, true));
     }
 }
 
@@ -368,7 +370,6 @@ void _rfbWebSocketOnConnected(JsonObject& root) {
     root["rfbCount"] = relayCount();
 #endif
 #if RFB_PROVIDER == RFB_PROVIDER_RCSWITCH
-    root["rfbdirectVisible"] = 1;
     root["rfbRX"] = getSetting("rfbRX", RFB_RX_PIN);
     root["rfbTX"] = getSetting("rfbTX", RFB_TX_PIN);
 #endif
@@ -430,8 +431,7 @@ RfbRelayMatch _rfbMatch(const char* code) {
     // scan kvs only once, since we want both ON and OFF options and don't want to depend on the relayCount()
     RfbRelayMatch matched;
 
-    using namespace settings;
-    kv_store.foreach([code, len, &matched](kvs_type::KeyValueResult&& kv) {
+    settings::internal::foreach([code, len, &matched](settings::kvs_type::KeyValueResult&& kv) {
         const auto key = kv.key.read();
         PayloadStatus status = key.startsWith(F("rfbON"))
             ? PayloadStatus::On : key.startsWith(F("rfbOFF"))
@@ -966,7 +966,7 @@ void rfbSend(const String& code) {
 
 #if MQTT_SUPPORT
 
-void _rfbMqttCallback(unsigned int type, const char * topic, char * payload) {
+void _rfbMqttCallback(unsigned int type, const char* topic, char* payload) {
 
     if (type == MQTT_CONNECT_EVENT) {
 
@@ -986,7 +986,7 @@ void _rfbMqttCallback(unsigned int type, const char * topic, char * payload) {
 
     if (type == MQTT_MESSAGE_EVENT) {
 
-        String t = mqttMagnitude((char *) topic);
+        String t = mqttMagnitude(topic);
 
 #if RELAY_SUPPORT
         if (t.equals(MQTT_TOPIC_RFLEARN)) {
@@ -1211,60 +1211,59 @@ void rfbForget(size_t id, bool status) {
 
 #if RELAY_SUPPORT && (RFB_PROVIDER == RFB_PROVIDER_RCSWITCH)
 
+namespace {
+
 // TODO: remove this in 1.16.0
 
-void _rfbSettingsMigrate(int version) {
-    if (!version || (version > 4)) {
-        return;
+bool _rfbSettingsMigrateCode(String& out, const String& in) {
+    out = "";
+
+    if (18 == in.length()) {
+        uint8_t bits { 0u };
+        if (!hexDecode(in.c_str() + 8, 2, &bits, 1)) {
+            return false;
+        }
+
+        auto bytes = _rfb_bytes_for_bits(bits);
+        out = in.substring(0, 10);
+        out += (in.c_str() + in.length() - (2 * bytes));
+
+        return in != out;
     }
 
-    auto migrate_code = [](String& out, const String& in) -> bool {
-        out = "";
+    return false;
+}
 
-        if (18 == in.length()) {
-            uint8_t bits { 0u };
-            if (!hexDecode(in.c_str() + 8, 2, &bits, 1)) {
-                return false;
+void _rfbSettingsMigrate(int version) {
+    if (version < 4) {
+        String buffer;
+
+        auto relays = relayCount();
+        for (decltype(relays) id = 0; id < relays; ++id) {
+            SettingsKey on_key {F("rfbON"), id};
+            if (_rfbSettingsMigrateCode(buffer, getSetting(on_key))) {
+                setSetting(on_key, buffer);
             }
 
-            auto bytes = _rfb_bytes_for_bits(bits);
-            out = in.substring(0, 10);
-            out += (in.c_str() + in.length() - (2 * bytes));
-
-            return in != out;
-        }
-
-        return false;
-    };
-
-    String buffer;
-
-    auto relays = relayCount();
-    for (decltype(relays) id = 0; id < relays; ++id) {
-        SettingsKey on_key {F("rfbON"), id};
-        if (migrate_code(buffer, getSetting(on_key))) {
-            setSetting(on_key, buffer);
-        }
-
-        SettingsKey off_key {F("rfbOFF"), id};
-        if (migrate_code(buffer, getSetting(off_key))) {
-            setSetting(off_key, buffer);
+            SettingsKey off_key {F("rfbOFF"), id};
+            if (_rfbSettingsMigrateCode(buffer, getSetting(off_key))) {
+                setSetting(off_key, buffer);
+            }
         }
     }
 }
 
+} // namespace
+
 #endif
 
 void rfbSetup() {
-
 #if RFB_PROVIDER == RFB_PROVIDER_EFM8BB1
-
     _rfb_parser.reserve(RfbParser::MessageSizeBasic);
-
 #elif RFB_PROVIDER == RFB_PROVIDER_RCSWITCH
 
 #if RELAY_SUPPORT
-    _rfbSettingsMigrate(migrateVersion());
+    migrateVersion(_rfbSettingsMigrate);
 #endif
 
     {
@@ -1294,8 +1293,8 @@ void rfbSetup() {
 #endif
 
 #if RELAY_SUPPORT
-    relaySetStatusNotify(rfbStatus);
-    relaySetStatusChange(rfbStatus);
+    relayOnStatusNotify(rfbStatus);
+    relayOnStatusChange(rfbStatus);
 #endif
 
 #if MQTT_SUPPORT

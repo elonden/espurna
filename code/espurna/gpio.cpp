@@ -16,6 +16,8 @@ Copyright (C) 2017-2019 by Xose Pérez <xose dot perez at gmail dot com>
 #include "gpio_pin.h"
 #include "mcp23s08_pin.h"
 
+#include "ws.h"
+
 namespace settings {
 namespace internal {
 
@@ -104,13 +106,21 @@ private:
 
 } // namespace
 
+// Per https://llvm.org/docs/CodingStandards.html#provide-a-virtual-method-anchor-for-classes-in-headers
+// > If a class is defined in a header file and has a vtable (either it has virtual methods or it derives from classes with virtual methods),
+// > it must always have at least one out-of-line virtual method in the class. Without this, the compiler will copy the vtable and RTTI into
+// > every .o file that #includes the header, bloating .o file sizes and increasing link times.
+// - http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p1263r0.pdf
+// > This technique is unfortunate as it relies on detailed knowledge of how common toolchains work, and it may also require creating
+// > a dummy virtual function.
+//
+// `~BasePin() = default;` is technically inlined, so leaving that in the header.
+// Thus, ::description() implementation here becomes that anchor for the BasePin.
+
 String BasePin::description() const {
     char buffer[64];
     snprintf_P(buffer, sizeof(buffer), PSTR("%s @ GPIO%02u"), id(), pin());
     return buffer;
-}
-
-BasePin::~BasePin() {
 }
 
 GpioBase& hardwareGpio() {
@@ -151,5 +161,46 @@ BasePinPtr gpioRegister(unsigned char gpio) {
     return gpioRegister(hardwareGpio(), gpio);
 }
 
+#if WEB_SUPPORT
+
+namespace {
+
+void _gpioWebSocketOnVisible(JsonObject& root) {
+    JsonObject& config = root.createNestedObject("gpioConfig");
+
+    constexpr GpioType known_types[] {
+        GpioType::Hardware,
+#if MCP23S08_SUPPORT
+        GpioType::Mcp23s08,
+#endif
+    };
+
+    JsonArray& types = config.createNestedArray("types");
+
+    for (auto& type : known_types) {
+        auto* base = gpioBase(type);
+        if (base) {
+            JsonArray& entry = types.createNestedArray();
+            entry.add(base->id());
+            entry.add(static_cast<int>(type));
+
+            JsonArray& pins = config.createNestedArray(base->id());
+            for (unsigned char pin = 0; pin < base->pins(); ++pin) {
+                if (base->valid(pin)) {
+                    pins.add(pin);
+                }
+            }
+        }
+    }
+}
+
+} // namespace
+
+#endif // WEB_SUPPORT
+
 void gpioSetup() {
+#if WEB_SUPPORT
+    wsRegister()
+        .onVisible(_gpioWebSocketOnVisible);
+#endif
 }

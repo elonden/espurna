@@ -26,16 +26,18 @@ Copyright (C) 2019-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 #include <memory>
 
 namespace homeassistant {
+namespace {
 
 // Output is supposed to be used as both part of the MQTT config topic and the `uniq_id` field
 // TODO: manage UTF8 strings? in case we somehow receive `desc`, like it was done originally
 
-String normalize_ascii(String&& value, bool lower = false) {
-    auto* ptr = const_cast<char*>(value.c_str());
-    for (;;) {
+String normalize_ascii(String input, bool lower) {
+    String output(std::move(input));
+
+    for (auto ptr = output.begin(); ptr != output.end(); ++ptr) {
         switch (*ptr) {
         case '\0':
-            goto return_value;
+            goto return_output;
         case '0' ... '9':
         case 'a' ... 'z':
             break;
@@ -48,11 +50,10 @@ String normalize_ascii(String&& value, bool lower = false) {
             *ptr = '_';
             break;
         }
-        ++ptr;
     }
 
-return_value:
-    return std::move(value);
+return_output:
+    return output;
 }
 
 // Common data used across the discovery payloads.
@@ -65,17 +66,14 @@ public:
         Strings(const Strings&) = delete;
 
         Strings(Strings&&) = default;
-        Strings(String&& prefix_, String&& name_, const String& identifier_, const char* version_, const char* manufacturer_, const char* device_) :
+        Strings(String&& prefix_, String&& name_, String identifier_, const char* version_, const char* manufacturer_, const char* device_) :
             prefix(std::move(prefix_)),
-            name(std::move(name_)),
-            identifier(identifier_),
+            name(normalize_ascii(std::move(name_), false)),
+            identifier(normalize_ascii(std::move(identifier_), true)),
             version(version_),
             manufacturer(manufacturer_),
             device(device_)
-        {
-            name = normalize_ascii(std::move(name));
-            identifier = normalize_ascii(std::move(identifier), true);
-        }
+        {}
 
         String prefix;
         String name;
@@ -622,7 +620,7 @@ public:
             json["uniq_id"] = uniqueId();
 
             json["name"] = _ctx.name() + ' ' + name() + ' ' + localId();
-            json["stat_t"] = mqttTopic(magnitudeTopicIndex(_index).c_str(), false);
+            json["stat_t"] = mqttTopic(magnitudeTopicIndex(_index), false);
             json["unit_of_meas"] = magnitudeUnits(_index);
 
             json.printTo(_message);
@@ -936,7 +934,7 @@ namespace web {
 #if WEB_SUPPORT
 
 void onVisible(JsonObject& root) {
-    root["haVisible"] = 1;
+    wsPayloadModule(root, "ha");
 }
 
 void onConnected(JsonObject& root) {
@@ -952,6 +950,7 @@ bool onKeyCheck(const char* key, JsonVariant& value) {
 #endif
 
 } // namespace web
+} // namespace
 } // namespace homeassistant
 
 // This module no longer implements .yaml generation, since we can't:
@@ -969,15 +968,14 @@ void haSetup() {
 #endif
 
 #if LIGHT_PROVIDER != LIGHT_PROVIDER_NONE
-    lightSetReportListener(homeassistant::publishLightJson);
+    lightOnReport(homeassistant::publishLightJson);
     mqttHeartbeat(homeassistant::heartbeat);
 #endif
     mqttRegister(homeassistant::mqttCallback);
 
 #if TERMINAL_SUPPORT
     terminalRegisterCommand(F("HA.SEND"), [](const terminal::CommandContext& ctx) {
-        using namespace homeassistant::internal;
-        state = State::Pending;
+        homeassistant::internal::state = homeassistant::internal::State::Pending;
         homeassistant::publishDiscovery();
         terminalOK(ctx);
     });

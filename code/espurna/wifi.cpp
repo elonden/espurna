@@ -11,7 +11,6 @@ Copyright (C) 2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 */
 
 #include "wifi.h"
-#include "wifi_config.h"
 
 #include "telnet.h"
 #include "ws.h"
@@ -41,8 +40,203 @@ extern "C" netif* eagle_lwip_getif(int);
 extern "C" void netif_set_addr(netif* netif, ip4_addr_t*, ip4_addr_t*, ip4_addr_t*);
 
 // -----------------------------------------------------------------------------
-// SETTINGS
+// INTERNAL
 // -----------------------------------------------------------------------------
+
+namespace wifi {
+namespace {
+
+using Mac = std::array<uint8_t, 6>;
+
+namespace build {
+
+constexpr size_t NetworksMax { WIFI_MAX_NETWORKS };
+
+// aka long interval
+constexpr unsigned long staReconnectionInterval() {
+    return WIFI_RECONNECT_INTERVAL;
+}
+
+// aka short interval
+constexpr unsigned long staConnectionInterval() {
+    return WIFI_CONNECT_INTERVAL;
+}
+
+constexpr int staConnectionRetries() {
+    return WIFI_CONNECT_RETRIES;
+}
+
+constexpr StaMode staMode() {
+    return WIFI_STA_MODE;
+}
+
+constexpr bool softApCaptive() {
+    return 1 == WIFI_AP_CAPTIVE_ENABLED;
+}
+
+constexpr ApMode softApMode() {
+    return WIFI_AP_MODE;
+}
+
+constexpr uint8_t softApChannel() {
+    return WIFI_AP_CHANNEL;
+}
+
+constexpr bool hasSoftApSsid() {
+    return strlen(WIFI_AP_SSID);
+}
+
+const __FlashStringHelper* softApSsid() {
+    return F(WIFI_AP_SSID);
+}
+
+constexpr bool hasSoftApPassphrase() {
+    return strlen(WIFI_AP_PASS);
+}
+
+const __FlashStringHelper* softApPassphrase() {
+    return F(WIFI_AP_PASS);
+}
+
+constexpr unsigned long softApFallbackTimeout() {
+    return WIFI_FALLBACK_TIMEOUT;
+}
+
+constexpr bool scanNetworks() {
+    return 1 == WIFI_SCAN_NETWORKS;
+}
+
+constexpr int8_t scanRssiThreshold() {
+    return WIFI_SCAN_RSSI_THRESHOLD;
+}
+
+constexpr unsigned long scanRssiCheckInterval() {
+    return WIFI_SCAN_RSSI_CHECK_INTERVAL;
+}
+
+constexpr int8_t scanRssiChecks() {
+    return WIFI_SCAN_RSSI_CHECKS;
+}
+
+constexpr unsigned long garpIntervalMin() {
+    return WIFI_GRATUITOUS_ARP_INTERVAL_MIN;
+}
+
+constexpr unsigned long garpIntervalMax() {
+    return WIFI_GRATUITOUS_ARP_INTERVAL_MAX;
+}
+
+constexpr WiFiSleepType_t sleep() {
+    return WIFI_SLEEP_MODE;
+}
+
+constexpr float outputDbm() {
+    return WIFI_OUTPUT_POWER_DBM;
+}
+
+constexpr bool hasSsid(size_t index) {
+    return (
+        (index == 0) ? (strlen(WIFI1_SSID) > 0) :
+        (index == 1) ? (strlen(WIFI2_SSID) > 0) :
+        (index == 2) ? (strlen(WIFI3_SSID) > 0) :
+        (index == 3) ? (strlen(WIFI4_SSID) > 0) :
+        (index == 4) ? (strlen(WIFI5_SSID) > 0) : false
+    );
+}
+
+constexpr bool hasIp(size_t index) {
+    return (
+        (index == 0) ? (strlen(WIFI1_IP) > 0) :
+        (index == 1) ? (strlen(WIFI2_IP) > 0) :
+        (index == 2) ? (strlen(WIFI3_IP) > 0) :
+        (index == 3) ? (strlen(WIFI4_IP) > 0) :
+        (index == 4) ? (strlen(WIFI5_IP) > 0) : false
+    );
+}
+
+const __FlashStringHelper* ssid(size_t index) {
+    return (
+        (index == 0) ? F(WIFI1_SSID) :
+        (index == 1) ? F(WIFI2_SSID) :
+        (index == 2) ? F(WIFI3_SSID) :
+        (index == 3) ? F(WIFI4_SSID) :
+        (index == 4) ? F(WIFI5_SSID) : nullptr
+    );
+}
+
+const __FlashStringHelper* passphrase(size_t index) {
+    return (
+        (index == 0) ? F(WIFI1_PASS) :
+        (index == 1) ? F(WIFI2_PASS) :
+        (index == 2) ? F(WIFI3_PASS) :
+        (index == 3) ? F(WIFI4_PASS) :
+        (index == 4) ? F(WIFI5_PASS) : nullptr
+    );
+}
+
+const __FlashStringHelper* ip(size_t index) {
+    return (
+        (index == 0) ? F(WIFI1_IP) :
+        (index == 1) ? F(WIFI2_IP) :
+        (index == 2) ? F(WIFI3_IP) :
+        (index == 3) ? F(WIFI4_IP) :
+        (index == 4) ? F(WIFI5_IP) : nullptr
+    );
+}
+
+const __FlashStringHelper* gateway(size_t index) {
+    return (
+        (index == 0) ? F(WIFI1_GW) :
+        (index == 1) ? F(WIFI2_GW) :
+        (index == 2) ? F(WIFI3_GW) :
+        (index == 3) ? F(WIFI4_GW) :
+        (index == 4) ? F(WIFI5_GW) : nullptr
+    );
+}
+
+const __FlashStringHelper* mask(size_t index) {
+    return (
+        (index == 0) ? F(WIFI1_MASK) :
+        (index == 1) ? F(WIFI2_MASK) :
+        (index == 2) ? F(WIFI3_MASK) :
+        (index == 3) ? F(WIFI4_MASK) :
+        (index == 4) ? F(WIFI5_MASK) : nullptr
+    );
+}
+
+const __FlashStringHelper* dns(size_t index) {
+    return (
+        (index == 0) ? F(WIFI1_DNS) :
+        (index == 1) ? F(WIFI2_DNS) :
+        (index == 2) ? F(WIFI3_DNS) :
+        (index == 3) ? F(WIFI4_DNS) :
+        (index == 4) ? F(WIFI5_DNS) : nullptr
+    );
+}
+
+const __FlashStringHelper* bssid(size_t index) {
+    return (
+        (index == 0) ? F(WIFI1_BSSID) :
+        (index == 1) ? F(WIFI2_BSSID) :
+        (index == 2) ? F(WIFI3_BSSID) :
+        (index == 3) ? F(WIFI4_BSSID) :
+        (index == 4) ? F(WIFI5_BSSID) : nullptr
+    );
+}
+
+constexpr uint8_t channel(size_t index) {
+    return (
+        (index == 0) ? WIFI1_CHANNEL :
+        (index == 1) ? WIFI2_CHANNEL :
+        (index == 2) ? WIFI3_CHANNEL :
+        (index == 3) ? WIFI4_CHANNEL :
+        (index == 4) ? WIFI5_CHANNEL : 0
+    );
+}
+
+} // namespace build
+} // namespace
+} // namespace wifi
 
 namespace settings {
 namespace internal {
@@ -89,7 +283,42 @@ IPAddress convert(const String& value) {
     return out;
 }
 
+template <>
+wifi::Mac convert(const String& value) {
+    wifi::Mac out{};
+
+    constexpr size_t Min { 12 };
+    constexpr size_t Max { 17 };
+
+    switch (value.length()) {
+    // xxxxxxxxxx
+    case Min:
+        hexDecode(value.c_str(), value.length(), out.data(), out.size());
+        break;
+
+    // xx:xx:xx:xx:xx:xx
+    case Max: {
+        String buffer;
+        buffer.reserve(value.length());
+
+        for (auto it = value.begin(); it != value.end(); ++it) {
+            if ((*it) != ':') {
+                buffer += *it;
+            }
+        }
+        if (buffer.length() == Min) {
+            hexDecode(buffer.c_str(), buffer.length(), out.data(), out.size());
+        }
+        break;
+    }
+
+    }
+
+    return out;
+}
+
 // XXX: "(IP unset)" when not set, no point saving these :/
+// XXX: both 0.0.0.0 and 255.255.255.255 will be saved as empty string
 
 String serialize(const IPAddress& ip) {
     return ip.isSet() ? ip.toString() : emptyString;
@@ -98,23 +327,16 @@ String serialize(const IPAddress& ip) {
 } // namespace internal
 } // namespace settings
 
-// -----------------------------------------------------------------------------
-// INTERNAL
-// -----------------------------------------------------------------------------
-
 namespace wifi {
+namespace {
 
-// XXX: esp8266 Arduino API inclues pseudo-modes and is not directly convertible
-// into the SDK constants. Provide a constexpr version of the enum, since the code never
+// Use SDK constants directly. Provide a constexpr version of the Core enum, since the code never
 // actually uses `WiFi::mode(...)` directly, *but* opmode is retrieved using the SDK function.
 
 constexpr uint8_t OpmodeNull { NULL_MODE };
 constexpr uint8_t OpmodeSta { STATION_MODE };
 constexpr uint8_t OpmodeAp { SOFTAP_MODE };
 constexpr uint8_t OpmodeApSta { OpmodeSta | OpmodeAp };
-
-using Mac = std::array<uint8_t, 6>;
-using Macs = std::vector<Mac>;
 
 enum class ScanError {
     None,
@@ -357,7 +579,7 @@ String opmode(uint8_t mode) {
 namespace settings {
 
 void migrate(int version) {
-    if (version && (version < 5)) {
+    if (version < 5) {
         moveSetting("apmode", "wifiApMode");
     }
 }
@@ -418,12 +640,25 @@ IPAddress staDns(size_t index) {
         getSetting({"dns", index}, wifi::build::dns(index)));
 }
 
+wifi::Mac staBssid(size_t index) {
+    return ::settings::internal::convert<wifi::Mac>(
+        getSetting({"bssid", index}, wifi::build::bssid(index)));
+}
+
+int8_t staChannel(size_t index) {
+    return getSetting({"chan", index}, wifi::build::channel(index));
+}
+
 bool softApCaptive() {
     return getSetting("wifiApCaptive", wifi::build::softApCaptive());
 }
 
 wifi::ApMode softApMode() {
     return getSetting("wifiApMode", wifi::build::softApMode());
+}
+
+String softApDefaultSsid() {
+    return getIdentifier();
 }
 
 String softApSsid() {
@@ -438,19 +673,8 @@ String softApPassphrase() {
         : getAdminPass());
 }
 
-int8_t softApChannel() {
+uint8_t softApChannel() {
     return getSetting("wifiApChannel", wifi::build::softApChannel());
-}
-
-wifi::Mac softApLease(size_t index) {
-    wifi::Mac lease { 0u, 0u, 0u, 0u, 0u, 0u };
-
-    auto value = getSetting({"wifiApLease", index});
-    if (12 == value.length()) {
-        hexDecode(value.c_str(), value.length(), lease.data(), lease.size());
-    }
-
-    return lease;
 }
 
 } // namespace settings
@@ -459,8 +683,6 @@ wifi::Mac softApLease(size_t index) {
 // But, these are byte arrays, not C strings. When ssid_len is available, use it.
 // When not, we are still expecting the <32 arrays to have '\0' at the end and we manually
 // set the 32'nd char to '\0' to prevent conversion issues
-
-namespace {
 
 String convertSsid(const softap_config& config) {
     String ssid;
@@ -474,8 +696,9 @@ String convertSsid(const bss_info& info) {
     return ssid;
 }
 
-String convertSsid(const station_config& config) {
-    constexpr size_t SsidSize { sizeof(station_config::ssid) };
+template <typename T, size_t SsidSize = sizeof(T::ssid)>
+String convertSsid(const T& config) {
+    static_assert(SsidSize == 32, "");
 
     const char* ptr { reinterpret_cast<const char*>(config.ssid) };
     char ssid[SsidSize + 1];
@@ -487,8 +710,9 @@ String convertSsid(const station_config& config) {
 
 template <typename T, size_t PassphraseSize = sizeof(T::password)>
 String convertPassphrase(const T& config) {
-    const char* ptr { reinterpret_cast<const char*>(config.password) };
+    static_assert(PassphraseSize == 64, "");
 
+    const char* ptr { reinterpret_cast<const char*>(config.password) };
     char passphrase[PassphraseSize + 1];
     std::copy(ptr, ptr + PassphraseSize, passphrase);
     passphrase[PassphraseSize] = '\0';
@@ -496,14 +720,13 @@ String convertPassphrase(const T& config) {
     return passphrase;
 }
 
-template <typename T>
+template <typename T, size_t MacSize = sizeof(T::bssid)>
 wifi::Mac convertBssid(const T& info) {
+    static_assert(MacSize == 6, "");
     wifi::Mac mac;
-    std::copy(info.bssid, info.bssid + 6, mac.begin());
+    std::copy(info.bssid, info.bssid + MacSize, mac.begin());
     return mac;
 }
-
-} // namespace
 
 struct Info {
     Info() = default;
@@ -564,8 +787,7 @@ struct Info {
     }
 
 private:
-    //Mac _bssid {{ 0u, 0u, 0u, 0u, 0u, 0u }}; // TODO: gcc4 can't figure out basic aggregate, replace when using gcc10 builds
-    Mac _bssid {};
+    Mac _bssid{};
     AUTH_MODE _authmode { AUTH_OPEN };
     int8_t _rssi { 0 };
     uint8_t _channel { 0u };
@@ -689,28 +911,25 @@ struct Network {
 
     Network& operator=(Network&&) = default;
 
-    template <typename Ssid>
-    explicit Network(Ssid&& ssid) :
-        _ssid(std::forward<Ssid>(ssid))
+    explicit Network(String&& ssid) :
+        _ssid(std::move(ssid))
     {}
 
-    template <typename Ssid, typename Passphrase>
-    Network(Ssid&& ssid, Passphrase&& passphrase) :
-        _ssid(std::forward<Ssid>(ssid)),
-        _passphrase(std::forward<Passphrase>(passphrase))
+    Network(String&& ssid, String&& passphrase) :
+        _ssid(std::move(ssid)),
+        _passphrase(std::move(passphrase))
     {}
 
-    template <typename Ssid, typename Passphrase, typename Settings>
-    Network(Ssid&& ssid, Passphrase&& passphrase, Settings&& settings) :
-        _ssid(std::forward<Ssid>(ssid)),
-        _passphrase(std::forward<Passphrase>(passphrase)),
-        _ipSettings(std::forward<Settings>(settings))
+    Network(String&& ssid, String&& passphrase, IpSettings&& settings) :
+        _ssid(std::move(ssid)),
+        _passphrase(std::move(passphrase)),
+        _ipSettings(std::move(settings))
     {}
 
     // TODO(?): in case SDK API is used directly, this also could use an authmode field
     // Arduino wrapper sets WPAPSK minimum by default, so one use-case is to set it to WPA2PSK
 
-    Network(Network&& other, wifi::Mac bssid, uint8_t channel) :
+    Network(Network other, wifi::Mac bssid, uint8_t channel) :
         _ssid(std::move(other._ssid)),
         _passphrase(std::move(other._passphrase)),
         _ipSettings(std::move(other._ipSettings)),
@@ -759,9 +978,10 @@ using Networks = std::list<Network>;
 
 namespace sta {
 
-constexpr auto ConnectionInterval = wifi::build::staConnectionInterval();
-constexpr auto ConnectionRetries = wifi::build::staConnectionRetries();
-constexpr auto ReconnectionInterval = wifi::build::staReconnectionInterval();
+constexpr auto ConnectionInterval = build::staConnectionInterval();
+constexpr auto ConnectionRetries = build::staConnectionRetries();
+constexpr auto RecoveryInterval = ConnectionInterval * ConnectionRetries;
+constexpr auto ReconnectionInterval = build::staReconnectionInterval();
 
 uint8_t channel() {
     return wifi_get_channel();
@@ -787,21 +1007,6 @@ wifi::Info info() {
     return info(config);
 }
 
-wifi::IpSettings ipsettings() {
-    return {
-        WiFi.localIP(),
-        WiFi.subnetMask(),
-        WiFi.gatewayIP(),
-        WiFi.dnsIP()};
-}
-
-wifi::Mac bssid() {
-    station_config config{};
-    wifi_station_get_config(&config);
-
-    return convertBssid(config);
-}
-
 wifi::StaNetwork current(const station_config& config) {
     return {
         convertBssid(config),
@@ -823,7 +1028,6 @@ namespace internal {
 
 Ticker timer;
 bool wait { false };
-decltype(millis()) interval { wifi::build::garpIntervalMin() };
 
 } // namespace internal
 
@@ -878,10 +1082,9 @@ using Error = std::function<void(wifi::ScanError)>;
 struct Task {
     Task() = delete;
 
-    template <typename S, typename E>
-    Task(S&& success, E&& error) :
-        _success(std::forward<S>(success)),
-        _error(std::forward<E>(error))
+    Task(Success&& success, Error&& error) :
+        _success(std::move(success)),
+        _error(std::move(error))
     {}
 
     void success(bss_info* info) {
@@ -977,11 +1180,7 @@ SsidInfosPtr ssidinfos() {
 
     start(
         [infos](bss_info* found) {
-            wifi::SsidInfo pair(*found);
-            infos->remove_if([&](const wifi::SsidInfo& current) {
-                return (current.ssid() == pair.ssid()) && (current.info() < pair.info());
-            });
-            infos->emplace_front(std::move(pair));
+            infos->emplace_front(*found);
         },
         [infos](wifi::ScanError) {
             infos->clear();
@@ -1132,7 +1331,6 @@ struct Task {
 
             station_config config{};
 
-            constexpr size_t SsidMax { sizeof(station_config::ssid) };
             auto& ssid = network.ssid();
             if (!ssid.length() || (ssid.length() > SsidMax)) {
                 return false;
@@ -1195,66 +1393,9 @@ struct Task {
         return _networks;
     }
 
-    void reset() {
-        _begin = _networks.begin();
-        _end = _networks.end();
-        _current = _begin;
-        _retry = _retries;
-    }
-
-    // Since after sort() the ssid<->info pairs will be in a proper order, look up the known network and move it to the front aka 'head'
-    // Continue after shifting the 'head' element one element further, b/c we also a guaranteed that ssid<->info pairs are unique
-    // Authmode comparison is pretty lenient, so only requirement is availability of the passphrase text.
-
-    // Does not invalidate iterators, since the elements are swapped in-place, but we still need to reset to initial state.
-
-    void sort(scan::SsidInfosPtr&& ptr) {
-        auto& pairs = *ptr;
-        pairs.sort();
-
-        auto begin = _networks.begin();
-        auto end = _networks.end();
-
-        auto head = begin;
-
-        for (auto& pair : pairs) {
-            for (auto network = head; (head != end) && (network != end); ++network) {
-                if (pair.ssid() != (*network).ssid()) {
-                    continue;
-                }
-
-                auto& info = pair.info();
-                if ((*network).passphrase().length()
-                        && (info.authmode() == AUTH_OPEN)) {
-                    continue;
-                }
-
-                *network = wifi::Network(std::move(*network), info.bssid(), info.channel());
-                if (network != head) {
-                    std::swap(*network, *head);
-                }
-                ++head;
-                break;
-            }
-        }
-
-        reset();
-    }
-
-    // Allow to remove the currently used network right from the scan routine
-    // Only makes sense when wifi::Network's bssid exist, either after sort() or if loaded from settings
-
-    bool filter(const wifi::Info& info) {
-        _networks.remove_if([&](const wifi::Network& network) {
-            return network.bssid() == info.bssid();
-        });
-        reset();
-        return !done();
-    }
-
-
 private:
     String _hostname;
+
     Networks _networks;
     Iterator _begin;
     Iterator _end;
@@ -1264,29 +1405,29 @@ private:
     int _retry;
 };
 
+using ActionPtr = void(*)();
+
+void action_next() {
+    wifi::action(wifi::Action::StationContinueConnect);
+}
+
+void action_new() {
+    wifi::action(wifi::Action::StationConnect);
+}
+
+wifi::sta::scan::SsidInfosPtr scanResults;
+wifi::Networks preparedNetworks;
+
 bool connected { false };
 bool wait { false };
 
 Ticker timer;
 bool persist { false };
-bool lock { false };
 
 using TaskPtr = std::unique_ptr<Task>;
 TaskPtr task;
 
 } // namespace internal
-
-bool locked() {
-    return internal::lock;
-}
-
-void unlock() {
-    internal::lock = false;
-}
-
-void lock() {
-    internal::lock = true;
-}
 
 void persist(bool value) {
     internal::persist = value;
@@ -1297,47 +1438,39 @@ bool persist() {
 }
 
 void stop() {
-    if (!locked()) {
-        internal::task.reset();
-        internal::timer.detach();
-    }
+    internal::task.reset();
+    internal::timer.detach();
 }
 
-bool started() {
-    return static_cast<bool>(internal::task);
-}
-
-bool start(String&& hostname, Networks&& networks, int retries) {
-    if (!locked()) {
+bool start(String&& hostname) {
+    if (!internal::task) {
         internal::task = std::make_unique<internal::Task>(
             std::move(hostname),
-            std::move(networks),
-            retries);
+            std::move(internal::preparedNetworks),
+            wifi::sta::ConnectionRetries);
         internal::timer.detach();
         return true;
     }
 
+    internal::preparedNetworks.clear();
     return false;
 }
 
-void schedule(decltype(millis()) ms, wifi::Action next) {
-    internal::timer.once_ms(ms, [next]() {
-        wifi::action(next);
-        unlock();
-    });
-    lock();
+void schedule(unsigned long ms, internal::ActionPtr ptr) {
+    internal::timer.once_ms(ms, ptr);
+    DEBUG_MSG_P(PSTR("[WIFI] Next connection attempt in %u ms\n"), ms);
 }
 
-bool scheduled() {
-    return internal::timer.active();
+void schedule_next() {
+    schedule(wifi::sta::ConnectionInterval, internal::action_next);
 }
 
-void schedule_continue() {
-    schedule(wifi::sta::ConnectionInterval, wifi::Action::StationContinueConnect);
+void schedule_new(unsigned long ms) {
+    schedule(ms, internal::action_new);
 }
 
-void schedule_initial() {
-    schedule(wifi::sta::ReconnectionInterval, wifi::Action::StationConnect);
+void schedule_new() {
+    schedule_new(wifi::sta::ReconnectionInterval);
 }
 
 bool next() {
@@ -1351,14 +1484,6 @@ bool connect() {
     }
 
     return false;
-}
-
-bool filter(const wifi::Info& info) {
-    return internal::task->filter(info);
-}
-
-void sort(scan::SsidInfosPtr&& infos) {
-    internal::task->sort(std::move(infos));
 }
 
 // Note that `wifi_station_get_connect_status()` may never actually change the state from CONNECTING when AP is not available.
@@ -1408,6 +1533,14 @@ bool lost() {
     return false;
 }
 
+void prepare(Networks&& networks) {
+    internal::preparedNetworks = std::move(networks);
+}
+
+bool prepared() {
+    return internal::preparedNetworks.size();
+}
+
 } // namespace connection
 
 bool connected() {
@@ -1427,7 +1560,7 @@ bool scanning() {
 // esp32 only has a generic onEvent, but event names are not compatible with the esp8266 version.
 
 void init() {
-    static auto disconnected = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected&) {
+    static auto disconnected = WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& event) {
         connection::internal::wait = false;
         connection::internal::connected = false;
     });
@@ -1495,10 +1628,6 @@ void threshold(int8_t value) {
     internal::threshold = value;
 }
 
-int8_t threshold() {
-    return internal::threshold;
-}
-
 void stop() {
     internal::stop();
 }
@@ -1516,12 +1645,66 @@ bool check() {
     return false;
 }
 
-bool enabled() {
-    return internal::timer.active();
-}
-
 } // namespace periodic
 } // namespace scan
+
+namespace connection {
+
+// After scan attempt, generate a new networks list based on the results sorted by the rssi value.
+// For the initial connection, add every matching network with the scan result bssid and channel info.
+// For the attempt to find a better network, filter out every network with worse than the current network's rssi
+
+void scanNetworks() {
+    internal::scanResults = wifi::sta::scan::ssidinfos();
+}
+
+bool suitableNetwork(const Network& network, const SsidInfo& ssidInfo) {
+    return (ssidInfo.ssid() == network.ssid())
+        && ((ssidInfo.info().authmode() != AUTH_OPEN)
+                ? network.passphrase().length()
+                : !network.passphrase().length());
+}
+
+bool scanProcessResults(int8_t threshold) {
+    if (internal::scanResults) {
+        auto results = std::move(internal::scanResults);
+        results->sort();
+
+        if (threshold < 0) {
+            results->remove_if([threshold](const wifi::SsidInfo& result) {
+                return result.info().rssi() < threshold;
+            });
+
+        }
+
+        Networks networks(std::move(internal::preparedNetworks));
+        Networks sortedNetworks;
+
+        for (auto& result : *results) {
+            for (auto& network : networks) {
+                if (suitableNetwork(network, result)) {
+                    sortedNetworks.emplace_back(network, result.info().bssid(), result.info().channel());
+                    break;
+                }
+            }
+        }
+
+        internal::preparedNetworks = std::move(sortedNetworks);
+        internal::scanResults.reset();
+    }
+
+    return internal::preparedNetworks.size();
+}
+
+bool scanProcessResults(const wifi::Info& info) {
+    return scanProcessResults(info.rssi());
+}
+
+bool scanProcessResults() {
+    return scanProcessResults(0);
+}
+
+} // namespace connection
 } // namespace sta
 
 // -----------------------------------------------------------------------------
@@ -1530,7 +1713,13 @@ bool enabled() {
 
 namespace ap {
 
-static constexpr size_t LeasesMax { 4u };
+static constexpr size_t SsidMax { sizeof(softap_config::ssid) };
+
+static constexpr size_t PassphraseMin { 8u };
+static constexpr size_t PassphraseMax { sizeof(softap_config::password) };
+
+static constexpr uint8_t ConnectionsMax { 4u };
+static constexpr uint16_t BeaconInterval { 100u };
 
 namespace internal {
 
@@ -1539,9 +1728,24 @@ bool captive { wifi::build::softApCaptive() };
 DNSServer dns;
 #endif
 
-#if WIFI_AP_LEASES_SUPPORT
-wifi::Macs leases;
-#endif
+void start(String&& defaultSsid, String&& ssid, String&& passphrase, uint8_t channel) {
+    // Always generate valid AP config, even when user-provided credentials fail to comply with the requirements
+    // TODO: configuration routine depends on a lwip dhcpserver, which is a custom module made specifically for the ESP.
+    // while it's possible to hijack this and control the process manually, right now it's easier to delegate this to the Core helpers
+    // (plus, it makes it not compatible with the esp-idf stack anyway, since wifi_softap_dhcps_... calls don't do anything here)
+
+    const char* apSsid {
+        (ssid.length() && (ssid.length() < SsidMax))
+        ? ssid.c_str() : defaultSsid.c_str() };
+
+    const char* apPass {
+        (passphrase.length() \
+         && (passphrase.length() >= PassphraseMin) \
+         && (passphrase.length() < PassphraseMax))
+        ? passphrase.c_str() : nullptr };
+
+    WiFi.softAP(apSsid, apPass, channel);
+}
 
 } // namespace internal
 
@@ -1583,27 +1787,6 @@ void toggle() {
         : wifi::Action::AccessPointStart);
 }
 
-#if WIFI_AP_LEASES_SUPPORT
-
-void setupLeases() {
-    for (auto& lease : internal::leases) {
-        wifi_softap_add_dhcps_lease(lease.data());
-    }
-}
-
-void clearLeases() {
-    internal::leases.clear();
-}
-
-template <typename T>
-void lease(T&& mac) {
-    if (internal::leases.size() < LeasesMax) {
-        internal::leases.push_back(std::forward<T>(mac));
-    }
-}
-
-#endif
-
 void stop() {
 #if WIFI_AP_CAPTIVE_SUPPORT
     internal::dns.stop();
@@ -1611,25 +1794,9 @@ void stop() {
     WiFi.softAPdisconnect();
 }
 
-void start(String&& ssid, String&& passphrase, uint8_t channel) {
-    if (!enabled()) {
-        return;
-    }
-
-    if (!ssid.length()) {
-        disable();
-        return;
-    }
-
-#if WIFI_AP_LEASES_SUPPORT
-    // Default amount of stations is 4, which we use here b/c softAp is called without arguments.
-    // When chaging the number below, update LeasesMax / use it as the 5th param
-    // (4th is `hidden` SSID)
-    setupLeases();
-#endif
-    // TODO: softAP() implicitly enables AP mode
-    enable();
-    WiFi.softAP(ssid, passphrase, channel);
+void start(String&& defaultSsid, String&& ssid, String&& passphrase, uint8_t channel) {
+    internal::start(std::move(defaultSsid), std::move(ssid),
+        std::move(passphrase), channel);
 
 #if WIFI_AP_CAPTIVE_SUPPORT
     if (internal::captive) {
@@ -1689,10 +1856,6 @@ void remove() {
     internal::timer.detach();
 }
 
-bool scheduled() {
-    return internal::timer.active();
-}
-
 void check();
 
 void schedule() {
@@ -1730,19 +1893,20 @@ wifi::Networks networks() {
         }
 
         auto pass = wifi::settings::staPassphrase(id);
+
         auto ip = staIp(id);
-        if (ip.isSet()) {
-            out.emplace_back(std::move(ssid), std::move(pass),
-                wifi::IpSettings{std::move(ip), staMask(id), staGateway(id), staDns(id)});
+        auto ipSettings = ip.isSet()
+            ? wifi::IpSettings{std::move(ip), staMask(id), staGateway(id), staDns(id)}
+            : wifi::IpSettings{};
+
+        Network network(std::move(ssid), staPassphrase(id), std::move(ipSettings));
+        auto channel = staChannel(id);
+        if (channel) {
+            out.emplace_back(std::move(network), staBssid(id), channel);
         } else {
-            out.emplace_back(std::move(ssid), std::move(pass));
+            out.push_back(std::move(network));
         }
     }
-
-    auto duplicates = std::unique(out.begin(), out.end(), [](const wifi::Network& lhs, const wifi::Network& rhs) {
-        return lhs.ssid() == rhs.ssid();
-    });
-    out.erase(duplicates, out.end());
 
     return out;
 }
@@ -1762,12 +1926,6 @@ void configure() {
 #if WIFI_AP_CAPTIVE_SUPPORT
     wifi::ap::captive(wifi::settings::softApCaptive());
 #endif
-#if WIFI_AP_LEASES_SUPPORT
-    wifi::ap::clearLeases();
-    for (size_t index = 0; index < wifi::ap::LeasesMax; ++index) {
-        wifi::ap::lease(wifi::settings::softApLease(index));
-    }
-#endif
 
     auto sta_enabled = (wifi::StaMode::Enabled == wifi::settings::staMode());
     wifi::sta::connection::persist(sta_enabled);
@@ -1778,7 +1936,12 @@ void configure() {
     wifi::sta::scan::periodic::threshold(wifi::settings::scanRssiThreshold());
 
 #if WIFI_GRATUITOUS_ARP_SUPPORT
-    wifi::sta::garp::start(wifi::settings::garpInterval());
+    auto interval = wifi::settings::garpInterval();
+    if (interval) {
+        wifi::sta::garp::start(interval);
+    } else {
+        wifi::sta::garp::stop();
+    }
 #endif
 
     WiFi.setSleepMode(wifi::settings::sleep());
@@ -1877,7 +2040,8 @@ void init() {
                     wifi::debug::mac(network.bssid).c_str(),
                     network.rssi, network.channel, network.ssid.c_str());
             } else {
-                ctx.output.print(F("STA: disconnected\n"));
+                ctx.output.printf_P(PSTR("STA: %s\n"),
+                        wifi::sta::connecting() ? "connecting" : "disconnected");
             }
         }
 
@@ -1939,14 +2103,20 @@ bool onKeyCheck(const char * key, JsonVariant& value) {
     if (strncmp(key, "gw", 2) == 0) return true;
     if (strncmp(key, "mask", 4) == 0) return true;
     if (strncmp(key, "dns", 3) == 0) return true;
+    if (strncmp(key, "bssid", 5) == 0) return true;
+    if (strncmp(key, "chan", 4) == 0) return true;
     return false;
 }
 
 void onConnected(JsonObject& root) {
     root["wifiScan"] = wifi::settings::scanNetworks();
+    root["wifiScanRssi"] = wifi::settings::scanRssiThreshold();
+
+    root["wifiApSsid"] = wifi::settings::softApSsid();
+    root["wifiApPass"] = wifi::settings::softApPassphrase();
 
     JsonObject& wifi = root.createNestedObject("wifiConfig");
-    root["max"] = wifi::build::NetworksMax;
+    wifi["max"] = wifi::build::NetworksMax;
 
     {
         static const char* const schema_keys[] PROGMEM = {
@@ -2024,6 +2194,7 @@ void onAction(uint32_t client_id, const char* action, JsonObject&) {
 
 namespace debug {
 
+[[gnu::unused]]
 String event(wifi::Event value) {
     String out;
 
@@ -2071,6 +2242,7 @@ String event(wifi::Event value) {
     return out;
 }
 
+[[gnu::unused]]
 const char* state(wifi::State value) {
     switch (value) {
     case wifi::State::Boot:
@@ -2134,27 +2306,25 @@ void subscribe(wifi::EventCallback callback) {
     callbacks.push_front(callback);
 }
 
-namespace {
-
-} // namespace
-
 State handleAction(State& state, Action action) {
     switch (action) {
     case Action::StationConnect:
-        if (!wifi::sta::connecting() && !wifi::sta::connected()) {
-            if (!wifi::sta::enabled()) {
-                wifi::sta::enable();
-                publish(wifi::Event::Mode);
-            }
+        if (!wifi::sta::enabled()) {
+            wifi::sta::enable();
+            publish(wifi::Event::Mode);
+        }
 
-            if (!wifi::sta::connecting()) {
+        if (!wifi::sta::connected()) {
+            if (wifi::sta::connecting()) {
+                wifi::sta::connection::schedule_next();
+            } else {
                 state = State::Init;
             }
         }
         break;
 
     case Action::StationContinueConnect:
-        if (wifi::sta::connecting() && !wifi::sta::connection::locked()) {
+        if (wifi::sta::connecting()) {
             state = State::Connect;
         }
         break;
@@ -2165,10 +2335,7 @@ State handleAction(State& state, Action action) {
             wifi::sta::disconnect();
         }
 
-        if (wifi::sta::connecting()) {
-            wifi::sta::connection::unlock();
-            wifi::sta::connection::stop();
-        }
+        wifi::sta::connection::stop();
 
         if (wifi::sta::enabled()) {
             wifi::sta::disable();
@@ -2192,6 +2359,7 @@ State handleAction(State& state, Action action) {
         if (!wifi::ap::enabled()) {
             wifi::ap::enable();
             wifi::ap::start(
+                wifi::settings::softApDefaultSsid(),
                 wifi::settings::softApSsid(),
                 wifi::settings::softApPassphrase(),
                 wifi::settings::softApChannel());
@@ -2251,21 +2419,14 @@ State handleAction(State& state, Action action) {
 
 bool prepareConnection() {
     if (wifi::sta::enabled()) {
-        auto networks = wifi::settings::networks();
-        if (!networks.size()) {
-            return false;
-        }
-
-        return wifi::sta::connection::start(
-                wifi::settings::hostname(), std::move(networks), wifi::sta::ConnectionRetries);
+        wifi::sta::connection::prepare(wifi::settings::networks());
+        return wifi::sta::connection::prepared();
     }
 
     return false;
 }
 
 void loop() {
-    static decltype(wifi::sta::scan::ssidinfos()) infos;
-
     static State state { State::Boot };
     static State last_state { state };
 
@@ -2291,18 +2452,31 @@ void loop() {
 
         wifi::sta::scan::periodic::stop();
         if (wifi::settings::scanNetworks()) {
-            infos = wifi::sta::scan::ssidinfos();
+            if (wifi::sta::scanning()) {
+                break;
+            }
+            wifi::sta::connection::scanNetworks();
             state = State::WaitScan;
             break;
         }
+
         state = State::Connect;
         break;
     }
 
     case State::TryConnectBetter:
-        if (wifi::settings::scanNetworks() && prepareConnection()) {
+        if (wifi::settings::scanNetworks()) {
+            if (wifi::sta::scanning()) {
+                break;
+            }
+
+            if (!prepareConnection()) {
+                state = State::Idle;
+                break;
+            }
+
             wifi::sta::scan::periodic::stop();
-            infos = wifi::sta::scan::ssidinfos();
+            wifi::sta::connection::scanNetworks();
             state = State::WaitScanWithoutCurrent;
             break;
         }
@@ -2311,7 +2485,7 @@ void loop() {
 
     case State::Fallback:
         state = State::Idle;
-        wifi::sta::connection::schedule_initial();
+        wifi::sta::connection::schedule_new();
         wifi::action(wifi::Action::AccessPointFallback);
         publish(wifi::Event::StationReconnect);
         break;
@@ -2321,7 +2495,7 @@ void loop() {
             break;
         }
 
-        wifi::sta::connection::sort(std::move(infos));
+        wifi::sta::connection::scanProcessResults();
         state = State::Connect;
         break;
 
@@ -2330,8 +2504,7 @@ void loop() {
             break;
         }
 
-        wifi::sta::connection::sort(std::move(infos));
-        if (wifi::sta::connection::filter(wifi::sta::info())) {
+        if (wifi::sta::connection::scanProcessResults(wifi::sta::info())) {
             wifi::sta::disconnect();
             state = State::Connect;
             break;
@@ -2341,6 +2514,13 @@ void loop() {
         break;
 
     case State::Connect: {
+        if (!wifi::sta::connecting()) {
+            if (!wifi::sta::connection::start(wifi::settings::hostname())) {
+                state = State::Timeout;
+                break;
+            }
+        }
+
         if (wifi::sta::connection::connect()) {
             state = State::WaitConnected;
             publish(wifi::Event::StationConnecting);
@@ -2366,10 +2546,9 @@ void loop() {
     // Current logic closely follows the SDK connection routine with reconnect enabled,
     // and will retry the same network multiple times before giving up.
     case State::Timeout:
-        wifi::sta::connection::unlock();
         if (wifi::sta::connecting() && wifi::sta::connection::next()) {
             state = State::Idle;
-            wifi::sta::connection::schedule_continue();
+            wifi::sta::connection::schedule_next();
             publish(wifi::Event::StationTimeout);
         } else {
             wifi::sta::connection::stop();
@@ -2378,8 +2557,6 @@ void loop() {
         break;
 
     case State::Connected:
-        infos.reset();
-        wifi::sta::connection::unlock();
         wifi::sta::connection::stop();
         if (wifi::settings::scanNetworks()) {
             wifi::sta::scan::periodic::start();
@@ -2406,9 +2583,7 @@ void loop() {
     if (wifi::sta::connection::lost()) {
         wifi::sta::scan::periodic::stop();
         if (wifi::sta::connection::persist()) {
-            wifi::sta::connection::schedule(
-                wifi::sta::ConnectionInterval * wifi::sta::ConnectionRetries,
-                wifi::Action::StationConnect);
+            wifi::sta::connection::schedule_new(wifi::sta::RecoveryInterval);
         }
         publish(wifi::Event::StationDisconnected);
     }
@@ -2443,6 +2618,7 @@ void init() {
 }
 
 } // namespace internal
+} // namespace
 } // namespace wifi
 
 // -----------------------------------------------------------------------------
@@ -2516,7 +2692,8 @@ size_t wifiApStations() {
 
 void wifiSetup() {
     wifi::internal::init();
-    wifi::settings::migrate(migrateVersion());
+
+    migrateVersion(wifi::settings::migrate);
     wifi::settings::configure();
 
 #if SYSTEM_CHECK_ENABLED

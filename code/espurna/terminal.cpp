@@ -28,7 +28,6 @@ Copyright (C) 2020 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 #include "web_asyncwebprint_impl.h"
 
 #include <algorithm>
-#include <vector>
 #include <utility>
 
 #include <Schedule.h>
@@ -140,8 +139,6 @@ constexpr size_t _terminalBufferSize() {
     return TERMINAL_SHARED_BUFFER_SIZE;
 }
 
-namespace {
-
 using Io = TerminalIO<_terminalBufferSize()>;
 
 Io _io;
@@ -152,11 +149,9 @@ terminal::Terminal _terminal(_io, Io::capacity());
 
 constexpr size_t SerialRxBufferSize { 128u };
 char _serial_rx_buffer[SerialRxBufferSize];
-static unsigned char _serial_rx_pointer = 0;
+unsigned char _serial_rx_pointer = 0;
 
 #endif // SERIAL_RX_ENABLED
-
-} // namespace
 
 // -----------------------------------------------------------------------------
 // Commands
@@ -348,7 +343,6 @@ private:
     uint32_t _sectors;
 };
 
-
 void _terminalInitCommands() {
 
     terminalRegisterCommand(F("COMMANDS"), _terminalHelpCommand);
@@ -454,33 +448,36 @@ void _terminalInitCommands() {
         ctx.output.printf_P(PSTR("size: %u (SPI), %u (SDK)\n"),
             ESP.getFlashChipRealSize(), ESP.getFlashChipSize());
 
-        Layouts layout(ESP.getFlashChipRealSize());
+        Layouts layouts(ESP.getFlashChipRealSize());
 
         // SDK specifies a hard-coded layout, there's no data beyond
         // (...addressable by the Core, since it adheres the setting)
         if (ESP.getFlashChipRealSize() > ESP.getFlashChipSize()) {
-            layout.add("unused", ESP.getFlashChipRealSize() - ESP.getFlashChipSize());
+            layouts.add("unused", ESP.getFlashChipRealSize() - ESP.getFlashChipSize());
         }
 
         // app is at a normal location, [0...size), but... since it is offset by the free space, make sure it is aligned
         // to the sector size (...and it is expected from the getFreeSketchSpace, as the app will align to use the fixed
         // sector address for OTA writes).
 
-        layout.add("sdk", 4 * SPI_FLASH_SEC_SIZE);
-        layout.add("eeprom", eepromSpace());
+        layouts.add("sdk", 4 * SPI_FLASH_SEC_SIZE);
+        layouts.add("eeprom", eepromSpace());
 
         auto app_size = (ESP.getSketchSize() + FLASH_SECTOR_SIZE - 1) & (~(FLASH_SECTOR_SIZE - 1));
-        auto ota_size = layout.current() - app_size;
+        auto ota_size = layouts.current() - app_size;
 
         // OTA is allowed to use all but one eeprom sectors that, leaving the last one
         // for the settings snapshot during the update
 
-        layout.add("ota", ota_size);
-        layout.add("app", app_size);
+        layouts.add("ota", ota_size);
+        layouts.add("app", app_size);
 
-        layout.foreach([&](const Layout& l) {
-            ctx.output.printf_P("%-6s [%08X...%08X) (%u bytes)\n", l.name(), l.start(), l.end(), l.size());
+        layouts.foreach([&](const Layout& layout) {
+            ctx.output.printf_P("%-6s [%08X...%08X) (%u bytes)\n",
+                    layout.name(), layout.start(), layout.end(), layout.size());
         });
+
+        terminalOK(ctx);
     });
 
     terminalRegisterCommand(F("RESET"), [](const terminal::CommandContext& ctx) {
@@ -617,14 +614,14 @@ void _terminalLoop() {
 
 void _terminalMqttSetup() {
 
-    mqttRegister([](unsigned int type, const char * topic, const char * payload) {
+    mqttRegister([](unsigned int type, const char* topic, char* payload) {
         if (type == MQTT_CONNECT_EVENT) {
             mqttSubscribe(MQTT_TOPIC_CMD);
             return;
         }
 
         if (type == MQTT_MESSAGE_EVENT) {
-            String t = mqttMagnitude((char *) topic);
+            String t = mqttMagnitude(topic);
             if (!t.startsWith(MQTT_TOPIC_CMD)) return;
             if (!strlen(payload)) return;
 
@@ -664,6 +661,14 @@ void _terminalMqttSetup() {
 }
 
 #endif // MQTT_SUPPORT && TERMINAL_MQTT_SUPPORT
+
+#if WEB_SUPPORT
+
+void _terminalWebSocketOnVisible(JsonObject& root) {
+    wsPayloadModule(root, "cmd");
+}
+
+#endif
 
 } // namespace
 
@@ -778,7 +783,7 @@ void terminalRegisterCommand(const __FlashStringHelper* name, terminal::Terminal
 };
 
 void terminalOK(Print& print) {
-    print.print(F("OK\n"));
+    print.print(F("+OK\n"));
 }
 
 void terminalError(Print& print, const String& error) {
@@ -806,7 +811,7 @@ void terminalSetup() {
     // Show DEBUG panel with input
     #if WEB_SUPPORT
         wsRegister()
-            .onVisible([](JsonObject& root) { root["cmdVisible"] = 1; });
+            .onVisible(_terminalWebSocketOnVisible);
     #endif
 
     // Similar to the above, but we allow only very small and in-place outputs.

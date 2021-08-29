@@ -34,43 +34,21 @@ namespace settings {
 
 class EepromStorage {
 public:
+    uint8_t read(size_t pos) {
+        return eepromRead(pos);
+    }
 
-uint8_t read(size_t pos) {
-    return eepromRead(pos);
-}
+    void write(size_t pos, uint8_t value) {
+        eepromWrite(pos, value);
+    }
 
-void write(size_t pos, uint8_t value) {
-    eepromWrite(pos, value);
-}
-
-void commit() {
-    autosaveSettings();
-}
-
+    void commit() {
+        autosaveSettings();
+    }
 };
 
 using kvs_type = embedis::KeyValueStore<EepromStorage>;
 
-extern kvs_type kv_store;
-
-} // namespace settings
-
-// --------------------------------------------------------------------------
-
-using settings_move_key_t = std::pair<SettingsKey, SettingsKey>;
-using settings_filter_t = std::function<String(String& value)>;
-
-struct settings_cfg_t {
-    String& setting;
-    const char* key;
-    const char* default_value;
-};
-
-using settings_cfg_list_t = std::initializer_list<settings_cfg_t>;
-
-// --------------------------------------------------------------------------
-
-namespace settings {
 namespace internal {
 
 template <typename T>
@@ -81,6 +59,20 @@ using enable_if_arduino_string = std::enable_if<is_arduino_string<T>::value>;
 
 template <typename T>
 using enable_if_not_arduino_string = std::enable_if<!is_arduino_string<T>::value>;
+
+ValueResult get(const String& key);
+bool set(const String& key, const String& value);
+bool del(const String& key);
+bool has(const String& key);
+
+using Keys = std::vector<String>;
+Keys keys();
+
+size_t available();
+size_t size();
+
+using KeyValueResultCallback = std::function<void(settings::kvs_type::KeyValueResult&&)>;
+void foreach(KeyValueResultCallback&& callback);
 
 // --------------------------------------------------------------------------
 
@@ -171,21 +163,19 @@ inline String serialize(bool value) {
 
 // --------------------------------------------------------------------------
 
-struct settings_key_match_t {
-    using match_f = bool(*)(const char* key);
-    using key_f = const String(*)(const String& key);
+namespace settings {
 
-    match_f match;
-    key_f key;
-};
+using RetrieveDefault = String(*)(const String& key);
 
-void settingsRegisterDefaults(const settings_key_match_t& matcher);
+} // namespace settings
+
+void settingsRegisterDefaults(const char* const prefix, settings::RetrieveDefault retrieve);
 String settingsQueryDefaults(const String& key);
 
 // --------------------------------------------------------------------------
 
 void moveSetting(const String& from, const String& to);
-void moveSetting(const String& from, const String& to, unsigned int index);
+void moveSetting(const String& from, const String& to, size_t index);
 void moveSettings(const String& from, const String& to);
 
 template <typename T, typename = typename settings::internal::enable_if_not_arduino_string<T>::type>
@@ -193,7 +183,7 @@ T getSetting(const SettingsKey& key, T defaultValue) __attribute__((noinline));
 
 template <typename T, typename = typename settings::internal::enable_if_not_arduino_string<T>::type>
 T getSetting(const SettingsKey& key, T defaultValue) {
-    auto result = settings::kv_store.get(key.value());
+    auto result = settings::internal::get(key.value());
     if (result) {
         return settings::internal::convert<T>(result.ref());
     }
@@ -213,7 +203,7 @@ String getSetting(const SettingsKey& key, String&& defaultValue);
 
 template<typename T, typename = typename settings::internal::enable_if_arduino_string<T>::type>
 bool setSetting(const SettingsKey& key, T&& value) {
-    return settings::kv_store.set(key.value(), value);
+    return settings::internal::set(key.value(), value);
 }
 
 template<typename T, typename = typename settings::internal::enable_if_not_arduino_string<T>::type>
@@ -242,8 +232,6 @@ bool settingsRestoreJson(JsonObject& data);
 size_t settingsKeyCount();
 std::vector<String> settingsKeys();
 
-void settingsProcessConfig(const settings_cfg_list_t& config, settings_filter_t filter = nullptr);
-
 size_t settingsSize();
 
 void settingsSetup();
@@ -252,6 +240,9 @@ void settingsSetup();
 // Configuration updates
 // -----------------------------------------------------------------------------
 
+using MigrateVersionCallback = void(*)(int);
+
+void migrateVersion(MigrateVersionCallback);
 int migrateVersion();
 void migrate();
 
@@ -296,4 +287,3 @@ template<typename T>
 bool delSetting(const String& key, unsigned char index) {
     return delSetting({key, index});
 }
-
