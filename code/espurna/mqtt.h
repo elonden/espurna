@@ -9,7 +9,7 @@ Updated secure client support by Niek van der Maas < mail at niekvandermaas dot 
 
 #pragma once
 
-#include "espurna.h"
+#include "system.h"
 
 #include <functional>
 
@@ -48,8 +48,6 @@ Updated secure client support by Niek van der Maas < mail at niekvandermaas dot 
 #define MQTT_TOPIC_BOARD            "board"
 #define MQTT_TOPIC_PULSE            "pulse"
 #define MQTT_TOPIC_SPEED            "speed"
-#define MQTT_TOPIC_IRIN             "irin"
-#define MQTT_TOPIC_IROUT            "irout"
 #define MQTT_TOPIC_OTA              "ota"
 #define MQTT_TOPIC_TELNET_REVERSE   "telnet_reverse"
 #define MQTT_TOPIC_CURTAIN          "curtain"
@@ -59,7 +57,7 @@ Updated secure client support by Niek van der Maas < mail at niekvandermaas dot 
 using mqtt_callback_f = std::function<void(unsigned int type, const char* topic, char* payload)>;
 using mqtt_pid_callback_f = std::function<void()>;
 
-void mqttHeartbeat(heartbeat::Callback);
+void mqttHeartbeat(espurna::heartbeat::Callback);
 void mqttRegister(mqtt_callback_f callback);
 
 void mqttOnPublish(uint16_t pid, mqtt_pid_callback_f);

@@ -6,20 +6,80 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 */
 
-#include "ws.h"
+#include "espurna.h"
 
 #if WEB_SUPPORT
 
+#include <queue>
 #include <vector>
 
 #include "system.h"
 #include "ntp.h"
 #include "utils.h"
+#include "ws.h"
 #include "web.h"
 #include "wifi.h"
 #include "ws_internal.h"
 
 #include "libs/WebSocketIncommingBuffer.h"
+
+// -----------------------------------------------------------------------------
+// Helpers / utility functions
+// -----------------------------------------------------------------------------
+
+namespace web {
+namespace ws {
+namespace internal {
+namespace {
+
+template <typename T>
+void populateSchema(JsonArray& schema, const T& pairs) {
+    for (auto& pair : pairs) {
+        schema.add(pair.key);
+    }
+}
+
+template <typename T>
+void populateEntry(JsonArray& entry, const T& pairs, size_t index) {
+    for (auto& pair : pairs) {
+        pair.callback(entry, index);
+    }
+}
+
+} // namespace
+} // namespace internal
+
+EnumerableConfig::EnumerableConfig(JsonObject& root, const __FlashStringHelper* name) :
+    _root(root.createNestedObject(name))
+{}
+
+void EnumerableConfig::operator()(const __FlashStringHelper* name, Iota iota, Check check, Pairs&& pairs)
+{
+    if (!iota) {
+        return;
+    }
+
+    if (!_root.containsKey(FPSTR(SchemaKey))) {
+        JsonArray& schema = _root.createNestedArray(FPSTR(SchemaKey));
+        internal::populateSchema(schema, pairs);
+
+        JsonArray& entries = _root.createNestedArray(name);
+        do {
+            if (!check || check(*iota)) {
+                JsonArray& entry = entries.createNestedArray();
+                internal::populateEntry(entry, pairs, (*iota));
+            }
+
+            ++iota;
+        } while (iota);
+    }
+}
+
+const char EnumerableConfig::SchemaKey[] PROGMEM = "schema";
+static_assert(alignof(EnumerableConfig::SchemaKey) == 4, "");
+
+} // namespace ws
+} // namespace web
 
 // -----------------------------------------------------------------------------
 // Periodic updates
@@ -35,7 +95,7 @@ void _wsResetUpdateTimer() {
 
 void _wsUpdate(JsonObject& root) {
     root["heap"] = systemFreeHeap();
-    root["uptime"] = systemUptime();
+    root["uptime"] = systemUptime().count();
     root["rssi"] = WiFi.RSSI();
     root["loadaverage"] = systemLoadAverage();
     if (ADC_MODE_VALUE == ADC_VCC) {
@@ -238,7 +298,6 @@ bool _wsAuth(AsyncWebSocketClient* client) {
 // Debug
 // -----------------------------------------------------------------------------
 
-
 #if DEBUG_WEB_SUPPORT
 
 namespace {
@@ -408,8 +467,9 @@ void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
     DynamicJsonBuffer jsonBuffer(512);
     JsonObject& root = jsonBuffer.parseObject((char *) payload);
     if (!root.success()) {
-        DEBUG_MSG_P(PSTR("[WEBSOCKET] JSON parsing error\n"));
-        wsSend_P(client_id, PSTR("{\"message\": \"Cannot parse the data!\"}"));
+        wsPost(client_id, [](JsonObject& root) {
+            root["message"] = F("JSON parsing error");
+        });
         return;
     }
 
@@ -418,7 +478,9 @@ void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
     const char* action = root["action"];
     if (action) {
         if (strcmp(action, "ping") == 0) {
-            wsSend_P(client_id, PSTR("{\"pong\": 1}"));
+            wsPost(client_id, [](JsonObject& root) {
+                root["pong"] = 1;
+            });
             _wsAuthUpdate(client);
             return;
         }
@@ -445,11 +507,16 @@ void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
         JsonObject& data = root["data"];
         if (data.success()) {
             if (strcmp(action, "restore") == 0) {
+                String message;
                 if (settingsRestoreJson(data)) {
-                    wsSend_P(client_id, PSTR("{\"message\": \"Changes saved, you should be able to reboot now.\"}"));
+                    message = F("Changes saved, you should be able to reboot now");
                 } else {
-                    wsSend_P(client_id, PSTR("{\"message\": \"Could not restore the configuration, see the debug log for more information.\"}"));
+                    message = F("Cound not restore the configuration, see the debug log for more information");
                 }
+                wsPost(client_id, [message](JsonObject& root) {
+                    // TODO: mildly inefficient, move() the object into lambda
+                    root["message"] = message;
+                });
                 return;
             }
 
@@ -537,8 +604,8 @@ void _wsOnConnected(JsonObject& root) {
     root["mac"] = getFullChipId().c_str();
     root["bssid"] = WiFi.BSSIDstr();
     root["channel"] = WiFi.channel();
-    root["hostname"] = getSetting("hostname", getIdentifier());
-    root["desc"] = getSetting("desc");
+    root["hostname"] = getHostname();
+    root["desc"] = getDescription();
     root["network"] = wifiStaSsid();
     root["deviceip"] = wifiStaIp().toString();
     root["sketch_size"] = ESP.getSketchSize();
@@ -579,7 +646,6 @@ void _wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTy
 
 #ifndef NOWSAUTH
         if (!_wsAuth(client)) {
-            wsSend_P(client->id(), PSTR("{\"action\": \"reload\", \"message\": \"Session expired.\"}"));
             DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u session expired for %s\n"), client->id(), ip.c_str());
             client->close();
             return;
@@ -748,14 +814,6 @@ void wsSend(const char * payload) {
     }
 }
 
-void wsSend_P(const char* payload) {
-    if (_ws.count() > 0) {
-        char buffer[strlen_P(payload)];
-        strcpy_P(buffer, payload);
-        _ws.textAll(buffer);
-    }
-}
-
 void wsSend(uint32_t client_id, ws_on_send_callback_f callback) {
     AsyncWebSocketClient* client = _ws.client(client_id);
     if (client == nullptr) return;
@@ -768,12 +826,6 @@ void wsSend(uint32_t client_id, ws_on_send_callback_f callback) {
 
 void wsSend(uint32_t client_id, const char * payload) {
     _ws.text(client_id, payload);
-}
-
-void wsSend_P(uint32_t client_id, const char* payload) {
-    char buffer[strlen_P(payload)];
-    strcpy_P(buffer, payload);
-    _ws.text(client_id, buffer);
 }
 
 void wsSetup() {

@@ -77,7 +77,6 @@ struct KWh {
 };
 
 struct Energy {
-
     constexpr static uint32_t KwhMultiplier = 3600000ul;
     constexpr static uint32_t KwhLimit = ((1ul << 31ul) / KwhMultiplier);
 
@@ -85,11 +84,11 @@ struct Energy {
 
     // TODO: while we accept ws >= the kwh conversion limit,
     // should this be dealt with on the unit level?
-    Energy(double);
-    Energy(KWh, Ws);
-    Energy(KWh);
-    Energy(Wh);
-    Energy(Ws);
+    explicit Energy(double);
+    explicit Energy(KWh, Ws);
+    explicit Energy(KWh);
+    explicit Energy(Wh);
+    explicit Energy(Ws);
 
     // Sets internal counters to zero
     void reset();
@@ -98,13 +97,14 @@ struct Energy {
     // - on cold boot
     // - on overflow
     // - when we call `reset()`
-    operator bool();
+    explicit operator bool() const;
 
     // Generic conversion as-is
-    double asDouble();
+    double asDouble() const;
+    String asString() const;
 
     // Convert back to input unit, with overflow mechanics when kwh values goes over 32 bit
-    Ws asWs();
+    Ws asWs() const;
 
     // Generic sensors output energy in joules / watt-second
     Energy& operator +=(Ws);
@@ -119,9 +119,16 @@ struct Energy {
     Ws ws;
 };
 
+struct ReadValue {
+    double raw;
+    double processed;
+    double filtered;
+};
+
 struct Value {
     double get();
 
+    bool real_time;
     double last;
     double reported;
     unsigned char decimals;
@@ -154,7 +161,8 @@ String magnitudeName(unsigned char type);
 
 String sensorError(unsigned char error);
 
-void sensorWebSocketMagnitudes(JsonObject& root, const String& prefix);
+using SensorWebSocketMagnitudesCallback = void(*)(JsonArray&, size_t);
+void sensorWebSocketMagnitudes(JsonObject& root, const char* prefix, SensorWebSocketMagnitudesCallback);
 
 unsigned char sensorCount();
 void sensorSetup();

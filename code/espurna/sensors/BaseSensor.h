@@ -13,6 +13,87 @@
 
 class BaseSensor {
 public:
+    // Generic way to pass the sensor instance to the isr
+    struct InterruptablePin {
+        InterruptablePin() = default;
+        ~InterruptablePin() {
+            detach();
+        }
+
+        template <typename T, typename TypedCallback = void(*)(T*)>
+        void attach(T* instance, TypedCallback callback, int mode) {
+            _attach(static_cast<void*>(instance), reinterpret_cast<VoidCallback>(callback), mode);
+        }
+
+        InterruptablePin& operator=(unsigned char pin) {
+            _pin = pin;
+            return *this;
+        }
+
+        bool operator==(unsigned char other) const {
+            return _pin == other;
+        }
+
+        explicit operator String() const {
+            return String(_pin);
+        }
+
+        void detach() {
+            gpioUnlock(_current);
+            ::detachInterrupt(_current);
+            _current = GPIO_NONE;
+        }
+
+        void pin(unsigned char value) {
+            _pin = value;
+        }
+
+        unsigned char pin() const {
+            return _pin;
+        }
+
+    private:
+        using VoidCallback = void(*)(void*);
+
+        void _attach(void* instance, VoidCallback callback, int mode) {
+            if (_current != _pin) {
+                if (!gpioLock(_pin)) {
+                    return;
+                }
+
+                detach();
+                ::attachInterruptArg(_pin, callback, instance, mode);
+
+                _current = _pin;
+            }
+        }
+
+        unsigned char _current { GPIO_NONE };
+        unsigned char _pin { GPIO_NONE };
+    };
+
+    // Generic container for magnitude types used in the sensor
+    struct Magnitude {
+        unsigned char type;
+#if __cplusplus <= 201103L
+        constexpr Magnitude(unsigned char type_) :
+            type(type_)
+        {}
+#endif
+    };
+
+    template <typename T, typename Callback>
+    static void findMagnitudes(const T& container, unsigned char type, Callback&& callback) {
+        auto begin = std::begin(container);
+        auto end = std::end(container);
+
+        for (auto it = begin; it != end; ++it) {
+            if ((*it).type == type) {
+                callback(std::distance(begin, it));
+            }
+        }
+    }
+
     // Must implement as virtual.
     // Allows inhereting class correctly call it's own destructor through the ~BaseSensor()
     virtual ~BaseSensor() {
@@ -35,12 +116,12 @@ public:
     }
 
     // Type of sensor
-    virtual unsigned char type() {
+    virtual unsigned char type() const {
         return sensor::type::Base;
     }
 
     // Number of decimals for a unit (or -1 for default)
-    virtual signed char decimals(sensor::Unit) {
+    virtual signed char decimals(sensor::Unit) const {
         return -1;
     }
 
@@ -71,11 +152,6 @@ public:
     // Number of available slots
     unsigned char count() {
         return _count;
-    }
-
-    // Convert slot # index to a magnitude # index
-    virtual unsigned char local(unsigned char slot) {
-        return 0;
     }
 
     // Specify units attached to magnitudes

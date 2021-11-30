@@ -21,7 +21,7 @@
 #endif
 
 #ifndef SENSOR_INIT_INTERVAL
-#define SENSOR_INIT_INTERVAL                10000           // Try to re-init non-ready sensors every 10s
+#define SENSOR_INIT_INTERVAL                10              // Try to re-init non-ready sensors every 10s
 #endif
 
 #ifndef SENSOR_REPORT_EVERY
@@ -45,16 +45,8 @@
 #define SENSOR_POWER_CHECK_STATUS           1               // If set to 1 the reported power/current/energy will be 0 if the relay[0] is OFF
 #endif
 
-#ifndef TEMPERATURE_MIN_CHANGE
-#define TEMPERATURE_MIN_CHANGE              0.0             // Minimum temperature change to report
-#endif
-
-#ifndef HUMIDITY_MIN_CHANGE
-#define HUMIDITY_MIN_CHANGE                 0.0             // Minimum humidity change to report
-#endif
-
-#ifndef ENERGY_MAX_CHANGE
-#define ENERGY_MAX_CHANGE                   0.0             // Maximum energy change to report (if >0 it will allways report when delta(E) is greater than this)
+#ifndef SENSOR_REAL_TIME_VALUES
+#define SENSOR_REAL_TIME_VALUES             0               // Show filtered/median values by default (0 => median, 1 => real time)
 #endif
 
 #ifndef SENSOR_SAVE_EVERY
@@ -508,6 +500,10 @@
 #define EMON_ANALOG_SUPPORT             0       // Do not build support by default
 #endif
 
+#ifndef EMON_ANALOG_RESOLUTION
+#define EMON_ANALOG_RESOLUTION          10      // ADC resolution (in bits)
+#endif
+
 //------------------------------------------------------------------------------
 // Counter sensor
 // Enable support by passing EVENTS_SUPPORT=1 build flag
@@ -725,15 +721,15 @@
 #endif
 
 #ifndef HLW8012_CURRENT_RATIO
-#define HLW8012_CURRENT_RATIO           0.0       // Set to 0.0 to use factory defaults
+#define HLW8012_CURRENT_RATIO           HLW8012_DEFAULT_CURRENT_RATIO   // Value multiplier, internally used to scale RAW current
 #endif
 
 #ifndef HLW8012_VOLTAGE_RATIO
-#define HLW8012_VOLTAGE_RATIO           0.0       // Set to 0.0 to use factory defaults
+#define HLW8012_VOLTAGE_RATIO           HLW8012_DEFAULT_VOLTAGE_RATIO   // Value multiplier, internally used to scale RAW voltage
 #endif
 
 #ifndef HLW8012_POWER_RATIO
-#define HLW8012_POWER_RATIO             0.0       // Set to 0.0 to use factory defaults
+#define HLW8012_POWER_RATIO             HLW8012_DEFAULT_POWER_RATIO     // Value multiplier, internally used to scale RAW active power
 #endif
 
 #ifndef HLW8012_USE_INTERRUPTS
@@ -952,6 +948,7 @@
 
 #ifndef PZEM004T_USE_SOFT
 #define PZEM004T_USE_SOFT               0       // By default, use Hardware serial with GPIO15 (TX) and GPIO13 (RX)
+                                                // (but, make sure to change DEBUG_PORT to Serial1 or set DEBUG_SERIAL_SUPPORT to 0)
 #endif
 
 #ifndef PZEM004T_RX_PIN
@@ -967,16 +964,30 @@
                                                 // ESP8266: Serial1 does not allow receiving data, no point in changing this setting
 #endif
 
-#ifndef PZEM004T_ADDRESSES
-#define PZEM004T_ADDRESSES              "192.168.1.1"  // Device(s) address(es), separated by space, "192.168.1.1 192.168.1.2 192.168.1.3"
-#endif
-
 #ifndef PZEM004T_READ_INTERVAL
-#define PZEM004T_READ_INTERVAL          1500    // Read interval between same device
+#define PZEM004T_READ_INTERVAL          1000    // (ms) Minimum interval between device readings. When there are more than one device, interval will be shared
+                                                // between devices and each reading will happen after 'interval value' multiplied by the number of devices
 #endif
 
-#ifndef PZEM004T_MAX_DEVICES
-#define PZEM004T_MAX_DEVICES            3
+#ifndef PZEM004T_DEVICES_MAX
+#define PZEM004T_DEVICES_MAX            4       // Maximum number of active devices
+#endif
+
+#ifndef PZEM004T_ADDRESS_1
+#define PZEM004T_ADDRESS_1            "192.168.1.1" // Device address, represented as an IPv4 string
+                                                    // Only the first address is enabled by default. To have more devices, fill in other addresses here, in the custom.h or through settings (pzemAddr#)
+#endif
+
+#ifndef PZEM004T_ADDRESS_2
+#define PZEM004T_ADDRESS_2            ""            // Only one device enabled by default
+#endif
+
+#ifndef PZEM004T_ADDRESS_3
+#define PZEM004T_ADDRESS_3            ""            // Only one device enabled by default
+#endif
+
+#ifndef PZEM004T_ADDRESS_4
+#define PZEM004T_ADDRESS_4            ""            // Only one device enabled by default
 #endif
 
 //------------------------------------------------------------------------------
@@ -994,7 +1005,12 @@
 
 #ifndef PZEM004TV30_USE_SOFT
 #define PZEM004TV30_USE_SOFT               0       // By default, use Hardware serial with GPIO15 (TX) and GPIO13 (RX)
-                                                   // (but, make sure that DEBUG_SERIAL_SUPPORT is set to 0)
+                                                   // (but, make sure to change DEBUG_PORT to Serial1 or set DEBUG_SERIAL_SUPPORT to 0)
+#endif
+
+#ifndef PZEM004TV30_HW_PORT
+#define PZEM004TV30_HW_PORT                Serial  // Hardware serial port (if PZEM004TV30_USE_SOFT == 0)
+                                                   // ESP8266: Serial1 does not allow receiving data, no point in changing this setting
 #endif
 
 #ifndef PZEM004TV30_RX_PIN
@@ -1283,6 +1299,14 @@
 
 #ifndef ADE7953_ADDRESS
 #define ADE7953_ADDRESS                  0x38
+#endif
+
+#ifndef ADE7953_LINE_CYCLES
+#define ADE7953_LINE_CYCLES              50.0f
+#endif
+
+#ifndef ADE7953_CURRENT_THRESHOLD
+#define ADE7953_CURRENT_THRESHOLD        2000
 #endif
 
 // -----------------------------------------------------------------------------

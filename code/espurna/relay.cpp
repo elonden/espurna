@@ -6,7 +6,7 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 */
 
-#include "relay.h"
+#include "espurna.h"
 
 #if RELAY_SUPPORT
 
@@ -20,11 +20,12 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #include "api.h"
 #include "mqtt.h"
+#include "relay.h"
 #include "rpc.h"
 #include "rtcmem.h"
 #include "settings.h"
-#include "terminal.h"
 #include "storage_eeprom.h"
+#include "terminal.h"
 #include "utils.h"
 #include "ws.h"
 
@@ -1999,8 +2000,8 @@ void relayStatusWrap(size_t id, PayloadStatus value, bool is_group_topic) {
 
 namespace {
 
-bool _relayMqttHeartbeat(heartbeat::Mask mask) {
-    if (mask & heartbeat::Report::Relay)
+bool _relayMqttHeartbeat(espurna::heartbeat::Mask mask) {
+    if (mask & espurna::heartbeat::Report::Relay)
         _relayMqttReportAll();
 
     return mqttConnected();
@@ -2051,18 +2052,9 @@ void relayMQTTCallback(unsigned int type, const char* topic, char* payload) {
     }
 
     if (type == MQTT_CONNECT_EVENT) {
-        // Subscribe to own /set topic
-        char relay_topic[strlen(MQTT_TOPIC_RELAY) + 3];
-        snprintf_P(relay_topic, sizeof(relay_topic), PSTR("%s/+"), MQTT_TOPIC_RELAY);
-        mqttSubscribe(relay_topic);
-
-        // Subscribe to pulse topic
-        char pulse_topic[strlen(MQTT_TOPIC_PULSE) + 3];
-        snprintf_P(pulse_topic, sizeof(pulse_topic), PSTR("%s/+"), MQTT_TOPIC_PULSE);
-        mqttSubscribe(pulse_topic);
-
+        mqttSubscribe(MQTT_TOPIC_RELAY "/+");
+        mqttSubscribe(MQTT_TOPIC_PULSE "/+");
         _relayMqttSubscribeCustomTopics();
-
         connected = true;
         return;
     }

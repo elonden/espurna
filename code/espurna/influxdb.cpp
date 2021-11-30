@@ -6,16 +6,17 @@ Copyright (C) 2017-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 */
 
-#include "influxdb.h"
+#include "espurna.h"
 
 #if INFLUXDB_SUPPORT
 
 #include <map>
 #include <memory>
 
+#include "influxdb.h"
 #include "mqtt.h"
-#include "rpc.h"
 #include "relay.h"
+#include "rpc.h"
 #include "sensor.h"
 #include "terminal.h"
 #include "ws.h"
@@ -215,7 +216,7 @@ void _idbFlush() {
 
     // TODO: should we always store specific pairs like tspk keeps relay / sensor readings?
     //       note that we also send heartbeat data, persistent values should be flagged
-    const String device = getSetting("hostname");
+    const String device = getHostname();
 
     _idb_client->payload = "";
     for (auto& pair : _idb_client->values) {
@@ -250,28 +251,28 @@ bool idbEnabled() {
     return _idb_enabled;
 }
 
-bool _idbHeartbeat(heartbeat::Mask mask) {
-    if (mask & heartbeat::Report::Uptime)
-        idbSend(MQTT_TOPIC_UPTIME, String(systemUptime()).c_str());
+bool _idbHeartbeat(espurna::heartbeat::Mask mask) {
+    if (mask & espurna::heartbeat::Report::Uptime)
+        idbSend(MQTT_TOPIC_UPTIME, String(systemUptime().count()).c_str());
 
-    if (mask & heartbeat::Report::Freeheap) {
+    if (mask & espurna::heartbeat::Report::Freeheap) {
         auto stats = systemHeapStats();
         idbSend(MQTT_TOPIC_FREEHEAP, String(stats.available).c_str());
     }
 
-    if (mask & heartbeat::Report::Rssi)
+    if (mask & espurna::heartbeat::Report::Rssi)
         idbSend(MQTT_TOPIC_RSSI, String(WiFi.RSSI()).c_str());
 
-    if ((mask & heartbeat::Report::Vcc) && (ADC_MODE_VALUE == ADC_VCC))
+    if ((mask & espurna::heartbeat::Report::Vcc) && (ADC_MODE_VALUE == ADC_VCC))
         idbSend(MQTT_TOPIC_VCC, String(ESP.getVcc()).c_str());
 
-    if (mask & heartbeat::Report::Loadavg)
+    if (mask & espurna::heartbeat::Report::Loadavg)
         idbSend(MQTT_TOPIC_LOADAVG, String(systemLoadAverage()).c_str());
 
-    if (mask & heartbeat::Report::Ssid)
+    if (mask & espurna::heartbeat::Report::Ssid)
         idbSend(MQTT_TOPIC_SSID, WiFi.SSID().c_str());
 
-    if (mask & heartbeat::Report::Bssid)
+    if (mask & espurna::heartbeat::Report::Bssid)
         idbSend(MQTT_TOPIC_BSSID, WiFi.BSSIDstr().c_str());
 
     return true;
@@ -280,8 +281,8 @@ bool _idbHeartbeat(heartbeat::Mask mask) {
 void idbSetup() {
     systemHeartbeat(_idbHeartbeat);
     systemHeartbeat(_idbHeartbeat,
-        getSetting("idbHbMode", heartbeat::currentMode()),
-        getSetting("idbHbIntvl", heartbeat::currentInterval()));
+        getSetting("idbHbMode", espurna::heartbeat::currentMode()),
+        getSetting("idbHbIntvl", espurna::heartbeat::currentInterval()));
 
     _idbConfigure();
 

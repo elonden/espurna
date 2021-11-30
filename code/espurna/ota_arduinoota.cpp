@@ -6,10 +6,11 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 */
 
-#include "ota.h"
+#include "espurna.h"
 
 #if OTA_ARDUINOOTA_SUPPORT
 
+#include "ota.h"
 #include "system.h"
 #include "ws.h"
 
@@ -97,9 +98,10 @@ void error(ota_error_t error) {
         break;
     }
 
-    DEBUG_MSG_P(PSTR("[OTA] \"%s\" error (#%u)"),
+    DEBUG_MSG_P(PSTR("[OTA] \"%s\" (%u, updater code %u)\n"),
             reinterpret_cast<const char*>(ptr),
-            static_cast<unsigned int>(error));
+            static_cast<unsigned int>(error),
+            Update.getError());
 #endif
 
     eepromRotate(true);
@@ -121,7 +123,7 @@ void setup() {
 } // namespace arduino
 } // namespace ota
 
-void arduinoOtaSetup() {
+void otaArduinoSetup() {
     ota::arduino::setup();
 }
 

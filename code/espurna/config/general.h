@@ -218,7 +218,7 @@
 #endif
 
 #ifndef SYSTEM_CHECK_TIME
-#define SYSTEM_CHECK_TIME       60000           // The system is considered stable after these many millis
+#define SYSTEM_CHECK_TIME       60              // The system is considered stable after these many seconds
 #endif
 
 #ifndef SYSTEM_CHECK_MAX
@@ -375,7 +375,7 @@
 //------------------------------------------------------------------------------
 
 #ifndef LOADAVG_INTERVAL
-#define LOADAVG_INTERVAL        30000           // Interval between calculating load average (in ms)
+#define LOADAVG_INTERVAL            30           // Interval between calculating load average (in seconds)
 #endif
 
 //------------------------------------------------------------------------------
@@ -738,10 +738,6 @@
 #define API_BASE_PATH               "/api/"
 #endif
 
-#ifndef API_REAL_TIME_VALUES
-#define API_REAL_TIME_VALUES        0           // Show filtered/median values by default (0 => median, 1 => real time)
-#endif
-
 // -----------------------------------------------------------------------------
 // MDNS / LLMNR / NETBIOS / SSDP
 // -----------------------------------------------------------------------------
@@ -842,7 +838,7 @@
 #endif
 
 #ifndef OTA_WEB_SUPPORT
-#define OTA_WEB_SUPPORT          1              // Support `/upgrade` endpoint and WebUI OTA handler
+#define OTA_WEB_SUPPORT             WEB_SUPPORT             // Support `/upgrade` endpoint and WebUI OTA handler
 #endif
 
 #define OTA_GITHUB_FP               "CA:06:F5:6B:25:8B:7A:0D:4F:2B:05:47:09:39:47:86:51:15:19:84"
@@ -1529,38 +1525,122 @@
 // -----------------------------------------------------------------------------
 
 #ifndef IR_SUPPORT
-#define IR_SUPPORT                  0               // Do not build with IR support by default (10.25Kb)
+#define IR_SUPPORT                  0               // (boolean) Do not build with IR support by default
 #endif
 
-//#define IR_RX_PIN                   5               // GPIO the receiver is connected to
-//#define IR_TX_PIN                   4               // GPIO the transmitter is connected to
-
-#ifndef IR_USE_RAW
-#define IR_USE_RAW                  0               // Use raw codes
+#ifndef IR_RX_SUPPORT
+#define IR_RX_SUPPORT               1               // (boolean) IR receiver support in the build (~30Kb, enabled by default)
 #endif
 
-#ifndef IR_BUFFER_SIZE
-#define IR_BUFFER_SIZE              1024
+#ifndef IR_RX_PIN
+#define IR_RX_PIN                   GPIO_NONE       // GPIO the receiver is connected to
 #endif
 
-#ifndef IR_TIMEOUT
-#define IR_TIMEOUT                  15U
+#ifndef IR_RX_PULLUP
+#define IR_RX_PULLUP                0               // (boolean) whether the IR receiver pin is setup with INPUT_PULLUP
 #endif
 
-#ifndef IR_REPEAT
-#define IR_REPEAT                   1
+#ifndef IR_TX_SUPPORT
+#define IR_TX_SUPPORT               1               // (boolean) IR transmitter support in the build (~8Kb, enabled by default)
 #endif
 
-#ifndef IR_DELAY
-#define IR_DELAY                    100
+#ifndef IR_TX_PIN
+#define IR_TX_PIN                   GPIO_NONE       // GPIO the transmitter is connected to
 #endif
 
-#ifndef IR_DEBOUNCE
-#define IR_DEBOUNCE                 500             // IR debounce time in milliseconds
+#ifndef IR_TX_INVERTED
+#define IR_TX_INVERTED              0               // By default, turn LED ON when GPIO is HIGH and OFF when it's LOW
 #endif
 
-#ifndef IR_BUTTON_SET
-#define IR_BUTTON_SET               0               // IR button set to use (see ../ir_button.h)
+#ifndef IR_TX_MODULATION
+#define IR_TX_MODULATION            1               // (boolean, interanl) enable frequency modulation, enabled by default
+#endif
+
+#ifndef IR_RX_BUFFER_SIZE
+#define IR_RX_BUFFER_SIZE           128             // (ms, internal) size of the buffer that will be used to store the captured data
+                                                    // required heap amount is the buffer size multiplied by four (default is 512bytes)
+#endif
+
+#ifndef IR_RX_TIMEOUT
+#define IR_RX_TIMEOUT               15              // (ms, internal) amount of time of no IR signal before the library stops capturing the data
+#endif
+
+#ifndef IR_RX_SIMPLE_MQTT
+#define IR_RX_SIMPLE_MQTT           1               // (boolean) Report simple protocols
+#endif
+
+#ifndef IR_RX_RAW_MQTT
+#define IR_RX_RAW_MQTT              0               // (boolean) Report RAW payload for everything received (even unknown protocols)
+#endif
+
+#ifndef IR_RX_STATE_MQTT
+#define IR_RX_STATE_MQTT            0               // (boolean) Report state payload for supported protocols
+#endif
+
+#ifndef IR_RX_SIMPLE_MQTT_TOPIC
+#define IR_RX_SIMPLE_MQTT_TOPIC     "irin"          // (string) MQTT topics are composed as {root}/{topic},
+                                                    // this one will be used to publish simple protocol messages
+                                                    // (or, automatically calculated FNV1 hash values when the protocol type is unknown)
+#endif
+
+#ifndef IR_TX_SIMPLE_MQTT_TOPIC
+#define IR_TX_SIMPLE_MQTT_TOPIC     "irout"         // (string) MQTT topic subscription to transmit the received message
+                                                    // (in a simple format)
+#endif
+
+#ifndef IR_RX_RAW_MQTT_TOPIC
+#define IR_RX_RAW_MQTT_TOPIC        "irraw"         // (string) MQTT topic to publish the received messages in RAW format
+#endif
+
+#ifndef IR_TX_RAW_MQTT_TOPIC
+#define IR_TX_RAW_MQTT_TOPIC        "irraw"         // (string) MQTT topic subscription to transmit the RAW timings
+#endif
+
+#ifndef IR_RX_STATE_MQTT_TOPIC
+#define IR_RX_STATE_MQTT_TOPIC      "irstate"       // (string) MQTT topic to publish messages with 'state'
+                                                    // (commonly, HVAC with payload size >=64bit, but this depends on the protocol)
+#endif
+
+#ifndef IR_TX_STATE_MQTT_TOPIC
+#define IR_TX_STATE_MQTT_TOPIC      "irstate"       // (string) MQTT topic subscription to transmit the state messages
+#endif
+
+#ifndef IR_TX_REPEATS
+#define IR_TX_REPEATS               0               // (number) additional number of times that the message will be sent per series
+                                                    // (currently, only for simple payloads. *may* be overriden by the protocol or the option)
+#endif
+
+#ifndef IR_TX_SERIES
+#define IR_TX_SERIES                1               // (number) default number of times that the message will be sent
+                                                    // (can be overriden in the MQTT payload option for the specific message)
+#endif
+
+#ifndef IR_TX_DELAY
+#define IR_TX_DELAY                 100             // (ms) minimum amount of time to wait before transmitting another message
+                                                    // (when using series >1, will also wait between the same message)
+#endif
+
+#ifndef IR_RX_DELAY
+#define IR_RX_DELAY                 100             // (ms) minimum amount of time to wait before processing incomming message
+#endif
+
+#ifndef IR_RX_PRESET
+#define IR_RX_PRESET                0               // (number) IR-code-as-button preset to use
+                                                    // 0 - disabled
+                                                    // 1,2,5 - generic remote shipped with the RGB controller
+                                                    // 3 - Samsung AA59-00608A for a generic 8CH module
+                                                    // 4 - Remote for a generic 1CH module
+                                                    // (~1Kb, see ir.cpp for more info about the presets)
+#endif
+
+#ifndef IR_RX_UNKNOWN
+#define IR_RX_UNKNOWN               1               // (boolean) do not discard unknown (-1) protocols by default
+                                                    // (*notice* that disabling this will cause RAW output to stop working)
+#endif
+
+#ifndef IR_TEST_SUPPORT
+#define IR_TEST_SUPPORT             0               // (boolean) enables internal tests and sanity checks that will be called on boot
+                                                    // (disabled by default and should only be enabled with debug support)
 #endif
 
 //--------------------------------------------------------------------------------
@@ -1662,7 +1742,7 @@
 //--------------------------------------------------------------------------------
 
 #ifndef PROMETHEUS_SUPPORT
-#define PROMETHEUS_SUPPORT          0
+#define PROMETHEUS_SUPPORT          API_SUPPORT
 #endif
 
 //--------------------------------------------------------------------------------

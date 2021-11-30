@@ -223,7 +223,7 @@ void status(const JsonObject& root, unsigned char nvalue) {
     }
 
     // domoticz uses 100 as maximum value while we're using a custom scale
-    lightBrightness((root["Level"].as<long>() / 100l) * Light::BrightnessMax);
+    lightBrightnessPercent(root["Level"].as<long>());
     lightState(nvalue > 0);
     lightUpdate();
 }
@@ -409,7 +409,9 @@ void onConnected(JsonObject& root) {
     }
 
 #if SENSOR_SUPPORT
-    sensorWebSocketMagnitudes(root, "dcz");
+    sensorWebSocketMagnitudes(root, "dcz", [](JsonArray& out, size_t index) {
+        out.add(getSetting({"dczMagnitude", index}, "0"));
+    });
 #endif
 }
 

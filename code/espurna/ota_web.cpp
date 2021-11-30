@@ -7,10 +7,11 @@ Copyright (C) 2020 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 
 */
 
-#include "ota.h"
+#include "espurna.h"
 
 #if WEB_SUPPORT && OTA_WEB_SUPPORT
 
+#include "ota.h"
 #include "web.h"
 #include "ws.h"
 
@@ -55,7 +56,7 @@ void setStatus(AsyncWebServerRequest *request, int code, const String& payload =
 
 void onUpgrade(AsyncWebServerRequest *request) {
     if (!webAuthenticate(request)) {
-        return request->requestAuthentication(getSetting("hostname").c_str());
+        return request->requestAuthentication(getHostname().c_str());
     }
 
     if (request->_tempObject) {
@@ -67,7 +68,7 @@ void onUpgrade(AsyncWebServerRequest *request) {
 
 void onFile(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
     if (!webAuthenticate(request)) {
-        return request->requestAuthentication(getSetting("hostname").c_str());
+        return request->requestAuthentication(getHostname().c_str());
     }
 
     // We set this after we are done with the request

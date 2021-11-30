@@ -62,11 +62,24 @@ var Rfm69 = {
 //endRemoveIf(!rfm69)
 
 //removeIf(!sensor)
-var Magnitudes = [];
-var MagnitudeErrors = {};
-var MagnitudeNames = {};
-var MagnitudeTypePrefixes = {};
-var MagnitudePrefixTypes = {};
+var Magnitudes = {
+    properties: {},
+    errors: {},
+    types: {},
+    units: {
+        names: {},
+        supported: {}
+    },
+    typePrefix: {},
+    prefixType: {}
+};
+
+function magnitudeTypedKey(magnitude, name) {
+    const prefix = Magnitudes.typePrefix[magnitude.type];
+    const index = magnitude.index_global;
+    return `${prefix}${name}${index}`;
+}
+
 //endRemoveIf(!sensor)
 
 // -----------------------------------------------------------------------------
@@ -800,8 +813,8 @@ function setOriginalsFromValues(elems) {
 function initSelect(select, values) {
     for (let value of values) {
         let option = document.createElement("option");
-        option.setAttribute("value", value["id"]);
-        option.textContent = value["name"];
+        option.setAttribute("value", value.id);
+        option.textContent = value.name;
         select.appendChild(option);
     }
 }
@@ -947,7 +960,7 @@ function idForTemplateContainer(container) {
     if (id < max) {
         return id;
     }
-    
+
     alert(`Max number of ${container.id} has been reached (${id} out of ${max})`);
     return -1;
 }
@@ -1005,6 +1018,12 @@ function askAndCallReconnect() {
 function askAndCallReboot() {
     askAndCall([askSaveSettings, askReboot], () => {
         sendAction("reboot");
+    });
+}
+
+function askAndCallAction(event) {
+    askAndCall([(ask) => ask(`Confirm the action: "${event.target.textContent}"`)], () => {
+        sendAction(event.target.name);
     });
 }
 
@@ -1158,27 +1177,6 @@ function sendConfigFromAllForms() {
     let forms = document.getElementsByClassName("form-settings");
     if (validateForms(forms)) {
         sendConfig(getData(forms));
-
-//removeIf(!sensor)
-        // Energy reset is handled via these keys
-        // TODO: replace these with actions, not settings
-        for (let elem of document.getElementsByClassName("pwrExpected")) {
-            elem.value = 0;
-        }
-
-        for (let form of document.forms) {
-            if (form.elements.snsResetCalibration) {
-                form.elements.snsResetCalibration.checked = false;
-            }
-            if (form.elements.pwrResetCalibration) {
-                form.elements.pwrResetCalibration.checked = false;
-            }
-            if (form.elements.pwrResetE) {
-                form.elements.pwrResetE.checked = false;
-            }
-        }
-//endRemoveIf(!sensor)
-
         Settings.counters.changed = 0;
         waitForSaved();
     }
@@ -1226,30 +1224,37 @@ function resetToFactoryDefaults(event) {
 // Visualization
 // -----------------------------------------------------------------------------
 
+// ref. vendor/side-menu.css
+
 function toggleMenu(event) {
-    if (event !== undefined && event.cancelable) {
-        event.preventDefault();
+    event.preventDefault();
+    event.target.parentElement.classList.toggle("active");
+}
+
+function showPanelByName(name) {
+    // only a single panel is shown on the 'layout'
+    for (const panel of document.querySelectorAll(".panel")) {
+        panel.style.display = "none";
     }
 
-    for (const id of ["layout", "menu", "menu-link"]) {
-        document.getElementById(id).classList.toggle("active");
+    const layout = document.getElementById("layout");
+    layout.classList.remove("active");
+
+    const panel = document.getElementById(`panel-${name}`);
+    panel.style.display = "inherit";
+
+    // TODO: sometimes, switching view causes us to scroll past
+    // the header (e.g. emon ratios panel on small screen)
+    // layout itself stays put, but the root element seems to scroll,
+    // at least can be reproduced with Chrome
+    if (document.documentElement) {
+        document.documentElement.scrollTop = 0;
     }
 }
 
 function showPanel(event) {
     event.preventDefault();
-
-    for (let panel of document.querySelectorAll(".panel")) {
-        panel.style.display = "none";
-    }
-
-    let layout = document.getElementById("layout");
-    if (layout.classList.contains("active")) {
-        toggleMenu();
-    }
-
-    let panel = event.target.dataset["panel"];
-    document.getElementById(`panel-${panel}`).style.display = "inherit";
+    showPanelByName(event.target.dataset["panel"]);
 }
 
 // -----------------------------------------------------------------------------
@@ -1262,10 +1267,12 @@ function createRelayList(values, container, template_name) {
         return;
     }
 
+    // TODO: let schema set the settings key
     let template = loadConfigTemplate(template_name);
     values.forEach((value, index) => {
         let line = template.cloneNode(true);
-        line.querySelector("label").textContent += " #".concat(index)
+        line.querySelector("label").textContent = (Enumerable.relay)
+            ? Enumerable.relay[index].name : `Switch #${index}`;
 
         let input = line.querySelector("input");
         input.value = value;
@@ -1277,21 +1284,24 @@ function createRelayList(values, container, template_name) {
 
 //removeIf(!sensor)
 
-function createMagnitudeList(data, container, template_name) {
-    let target = document.getElementById(container);
+function initModuleMagnitudes(data) {
+    const targetId = `${data.prefix}Magnitudes`;
+
+    let target = document.getElementById(targetId);
     if (target.childElementCount > 0) { return; }
 
     data.values.forEach((values) => {
-        let [type, index_global, index_module] = values;
+        const entry = fromSchema(values, data.schema);
 
-        let line = loadConfigTemplate(template_name);
+        let line = loadConfigTemplate("module-magnitude");
         line.querySelector("label").textContent =
-            MagnitudeNames[type].concat(" #").concat(parseInt(index_global, 10));
+            `${Magnitudes.types[entry.type]} #${entry.index_global}`;
         line.querySelector("div.hint").textContent =
-            Magnitudes[index_global].description;
+            Magnitudes.properties[entry.index_global].description;
 
         let input = line.querySelector("input");
-        input.value = index_module;
+        input.name = `${data.prefix}Magnitude`;
+        input.value = entry.index_module;
         input.dataset["original"] = input.value;
 
         mergeTemplate(target, line);
@@ -1565,60 +1575,216 @@ function initRelayConfig(id, cfg) {
 //removeIf(!sensor)
 
 function initMagnitudes(data) {
-    let container = document.getElementById("magnitudes");
-    if (container.childElementCount > 0) {
-        return;
-    }
-
     data.types.values.forEach((cfg) => {
         const info = fromSchema(cfg, data.types.schema);
-        MagnitudeNames[info.type] = info.name;
-        MagnitudeTypePrefixes[info.type] = info.prefix;
-        MagnitudePrefixTypes[info.prefix] = info.type;
+        Magnitudes.types[info.type] = info.name;
+        Magnitudes.typePrefix[info.type] = info.prefix;
+        Magnitudes.prefixType[info.prefix] = info.type;
     });
 
     data.errors.values.forEach((cfg) => {
         const error = fromSchema(cfg, data.errors.schema);
-        MagnitudeErrors[error.type] = error.name;
+        Magnitudes.errors[error.type] = error.name;
     });
 
-    data.magnitudes.values.forEach((cfg, index) => {
-        const magnitude = fromSchema(cfg, data.magnitudes.schema);
-
-        const prettyName = MagnitudeNames[magnitude.type]
-            .concat(" #").concat(parseInt(magnitude.index_global, 10));
-        Magnitudes.push({
-            name: prettyName,
-            units: magnitude.units,
-            description: magnitude.description
+    data.units.values.forEach((cfg, id) => {
+        const values = fromSchema(cfg, data.units.schema);
+        values.supported.forEach(([type, name]) => {
+            Magnitudes.units.names[type] = name;
         });
 
-        let info = loadTemplate("magnitude-info");
-        info.querySelector("label").textContent = prettyName;
-        info.querySelector("input").dataset["id"] = index;
-        info.querySelector("input").dataset["type"] = magnitude.type;
-        info.querySelector("div.sns-desc").textContent = magnitude.description;
-        info.querySelector("div.sns-info").style.display = "none";
+        Magnitudes.units.supported[id] = values.supported;
+    });
+}
 
-        mergeTemplate(container, info);
+function initMagnitudesList(data, callbacks) {
+    data.values.forEach((cfg, id) => {
+        const magnitude = fromSchema(cfg, data.schema);
+        const prettyName = Magnitudes.types[magnitude.type]
+            .concat(" #").concat(parseInt(magnitude.index_global, 10));
+
+        const result = {
+            name: prettyName,
+            units: magnitude.units,
+            type: magnitude.type,
+            index_global: magnitude.index_global,
+            description: magnitude.description
+        };
+
+        Magnitudes.properties[id] = result;
+        callbacks.forEach((callback) => {
+            callback(id, result);
+        });
+    });
+}
+
+function createMagnitudeInfo(id, magnitude) {
+    const container = document.getElementById("magnitudes");
+
+    const info = loadTemplate("magnitude-info-form");
+    const label = info.querySelector("label");
+    label.textContent = magnitude.name;
+
+    const input = info.querySelector("input");
+    input.dataset["id"] = id;
+    input.dataset["type"] = magnitude.type;
+    input.dataset["units"] = Magnitudes.units.names[magnitude.units];
+
+    const description = info.querySelector(".magnitude-description");
+    description.textContent = magnitude.description;
+
+    const extra = info.querySelector(".magnitude-info");
+    extra.style.display = "none";
+
+    mergeTemplate(container, info);
+}
+
+function createMagnitudeUnitSelector(id, magnitude) {
+    // but, no need for the element when there's no choice
+    const supported = Magnitudes.units.supported[id];
+    if ((supported !== undefined) && (supported.length > 1)) {
+        const line = loadTemplate("magnitude-units");
+        line.querySelector("label").textContent =
+            `${Magnitudes.types[magnitude.type]} #${magnitude.index_global}`;
+
+        const select = line.querySelector("select");
+        select.setAttribute("name", magnitudeTypedKey(magnitude, "Units"));
+
+        const options = [];
+        supported.forEach(([id, name]) => {
+            options.push({id, name});
+        });
+
+        initSelect(select, options);
+        setSelectValue(select, magnitude.units);
+
+        setOriginalsFromValuesForNode(line, [select]);
+        mergeTemplate(document.getElementById("magnitude-units"), line);
+    }
+}
+
+function emonRatioInfo(id) {
+    const out = {
+        id: id,
+        name: Magnitudes.properties[id].name,
+        prefix: `${Magnitudes.typePrefix[Magnitudes.properties[id].type]}`,
+        index_global: `${Magnitudes.properties[id].index_global}`
+    };
+
+    out.key = `${out.prefix}Ratio${out.index_global}`;
+    return out;
+}
+
+function initMagnitudesRatio(id, ratio) {
+    const template = loadTemplate("emon-ratios");
+    const input = template.querySelector("input");
+
+    const info = emonRatioInfo(id);
+    input.id = info.key;
+    input.name = input.id;
+    input.value = ratio;
+    setOriginalsFromValuesForNode(template, [input]);
+
+    const label = template.querySelector("label");
+    label.textContent = info.name;
+    label.htmlFor = input.id;
+
+    mergeTemplate(document.getElementById("emon-ratios"), template);
+}
+
+function initMagnitudesExpected(id) {
+    // TODO: also display currently read value?
+    const template = loadTemplate("emon-expected");
+    const [expected, result] = template.querySelectorAll("input");
+
+    const info = emonRatioInfo(id);
+
+    expected.name += `${info.key}`;
+    expected.id = expected.name;
+    expected.dataset["id"] = info.id;
+
+    result.name += `${info.key}`;
+    result.id = result.name;
+
+    const label = template.querySelector("label");
+    label.textContent = info.name;
+    label.htmlFor = expected.id;
+
+    const container = document.getElementById("emon-expected")
+    mergeTemplate(container, template);
+
+    // only the first occurence of the hint get's displayed
+    const hint = container.querySelector(`.emon-expected-${info.prefix}`)
+    if (hint !== null) {
+        hint.style.display = "inline-block";
+    }
+}
+
+function emonCalculateRatios() {
+    const inputs = document.getElementById("emon-expected")
+        .querySelectorAll(".emon-expected-input");
+
+    inputs.forEach((input) => {
+        if (input.value.length) {
+            sendAction("emon-expected", {
+                id: parseInt(input.dataset["id"], 10),
+                expected: parseFloat(input.value) });
+        }
+    });
+}
+
+function emonApplyRatios() {
+    const results = document.getElementById("emon-expected")
+        .querySelectorAll(".emon-expected-result");
+
+    results.forEach((result) => {
+        if (result.value.length) {
+            const ratio = document.getElementById(
+                result.name.replace("result:", ""));
+            ratio.value = result.value;
+            setChangedElement(ratio);
+
+            result.value = "";
+
+            const expected = document.getElementById(
+                result.name.replace("result:", "expected:"));
+            expected.value = "";
+        }
+    });
+
+    showPanelByName("sns");
+}
+
+function initMagnitudesSettings(data) {
+    data.values.forEach((cfg, id) => {
+        const settings = fromSchema(cfg, data.schema);
+        if (settings.Ratio) {
+            initMagnitudesRatio(id, settings.Ratio);
+            initMagnitudesExpected(id);
+        }
     });
 }
 
 function updateMagnitudes(data) {
     data.values.forEach((cfg, id) => {
+        if (!Magnitudes.properties[id]) {
+            return;
+        }
+
         const magnitude = fromSchema(cfg, data.schema);
 
-        let input = document.querySelector(`input[name='magnitude'][data-id='${id}']`);
-        input.value = (0 === magnitude.error)
-            ? (magnitude.value + Magnitudes[id].units)
-            : MagnitudeErrors[magnitude.error];
+        const input = document.querySelector(`input[name='magnitude'][data-id='${id}']`);
+        input.value = (0 !== magnitude.error)
+            ? Magnitudes.errors[magnitude.error]
+            : (("nan" === magnitude.value)
+                ? ""
+                : `${magnitude.value}${input.dataset.units}`);
 
         if (magnitude.info.length) {
-            let info = input.parentElement.parentElement.querySelector("div.sns-info");
+            const info = input.parentElement.parentElement.querySelector(".magnitude-info");
             info.style.display = "inherit";
             info.textContent = magnitude.info;
         }
-
     });
 }
 
@@ -2200,8 +2366,24 @@ function processData(data) {
 
         //removeIf(!sensor)
 
-        if ("magnitudesConfig" === key) {
+        if ("magnitudes-init" === key) {
             initMagnitudes(value);
+            return;
+        }
+
+        if ("magnitudes-module" === key) {
+            initModuleMagnitudes(value);
+            return;
+        }
+
+        if ("magnitudes-list" === key) {
+            initMagnitudesList(value, [
+                createMagnitudeUnitSelector, createMagnitudeInfo]);
+            return;
+        }
+
+        if ("magnitudes-settings" === key) {
+            initMagnitudesSettings(value);
             return;
         }
 
@@ -2300,40 +2482,18 @@ function processData(data) {
         }
 
         // ---------------------------------------------------------------------
-        // Domoticz
+        // Special mapping for domoticz and thingspeak
         // ---------------------------------------------------------------------
 
-        // Domoticz - Relays
         if ("dczRelays" === key) {
             createRelayList(value, "dczRelays", "dcz-relay");
             return;
         }
 
-        // Domoticz - Magnitudes
-        //removeIf(!sensor)
-        if ("dczMagnitudes" === key) {
-            createMagnitudeList(value, "dczMagnitudes", "dcz-magnitude");
-            return;
-        }
-        //endRemoveIf(!sensor)
-
-        // ---------------------------------------------------------------------
-        // Thingspeak
-        // ---------------------------------------------------------------------
-
-        // Thingspeak - Relays
         if ("tspkRelays" === key) {
             createRelayList(value, "tspkRelays", "tspk-relay");
             return;
         }
-
-        // Thingspeak - Magnitudes
-        //removeIf(!sensor)
-        if ("tspkMagnitudes" === key) {
-            createMagnitudeList(value, "tspkMagnitudes", "tspk-magnitude");
-            return;
-        }
-        //endRemoveIf(!sensor)
 
         // ---------------------------------------------------------------------
         // General
@@ -2551,6 +2711,9 @@ function main() {
     elementSelectorOnClick(".button-reconnect", askAndCallReconnect);
     elementSelectorOnClick(".button-reboot", askAndCallReboot);
 
+    // Generic action sender
+    elementSelectorOnClick(".button-simple-action", askAndCallAction);
+
     // WiFi config
     elementSelectorOnClick(".button-wifi-scan", startWifiScan);
 
@@ -2564,6 +2727,12 @@ function main() {
     });
 
     // Module specific elements
+
+    //removeIf(!sensor)
+    elementSelectorListener(".button-emon-expected", "click", showPanel);
+    elementSelectorListener(".button-emon-expected-calculate", "click", emonCalculateRatios);
+    elementSelectorListener(".button-emon-expected-apply", "click", emonApplyRatios);
+    //endRemoveIf(!sensor)
 
     //removeIf(!garland)
     elementSelectorListener(".checkbox-garland-enable", "change", (event) => {
@@ -2695,7 +2864,7 @@ function main() {
 
     // don't autoconnect when opening from filesystem
     if (window.location.protocol === "file:") {
-        processData({"webMode": 0});
+        processData({webMode: 0});
         return;
     }
 

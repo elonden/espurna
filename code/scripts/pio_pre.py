@@ -9,21 +9,16 @@
 
 # Run this script every time building an env BEFORE platform-specific code is loaded
 
-from __future__ import print_function
-
-Import("env")
-
 import os
 import sys
 
+from SCons.Script import Import, ARGUMENTS
 
-from SCons.Script import ARGUMENTS
+from espurna_utils import check_env
+from espurna_utils.build import app_add_builder_single_source, app_add_target_build_re2c
 
-from espurna_utils.build import merge_cpp
-
-
-def check_env(name, default):
-    return os.environ.get(name, default) in ("1", "y", "yes", "true")
+Import("env")
+env = globals()["env"]
 
 
 CI = check_env("CI", "false")
@@ -59,7 +54,7 @@ def get_shared_libdeps_dir(section, name):
 
     opt = CONFIG.get(section, name)
 
-    if not opt in env.GetProjectOption("lib_extra_dirs"):
+    if opt not in env.GetProjectOption("lib_extra_dirs"):
         raise ExtraScriptError(
             "lib_extra_dirs must contain {}.{}".format(section, name)
         )
@@ -119,6 +114,7 @@ if check_env("ESPURNA_PIO_SHARED_LIBRARIES", "0"):
     storage = get_shared_libdeps_dir("common", "shared_libdeps_dir")
     subprocess_libdeps(env.GetProjectOption("lib_deps"), storage, verbose=VERBOSE)
 
+
 # tweak build system to ignore espurna.ino, but include user code
 # ref: platformio-core/platformio/tools/piomisc.py::ConvertInoToCpp()
 def ConvertInoToCpp(env):
@@ -131,15 +127,7 @@ if len(ino) == 1 and ino[0].name == "espurna.ino":
 
 # merge every .cpp into a single file and **only** build that single file
 if check_env("ESPURNA_BUILD_SINGLE_SOURCE", "0"):
-    cpp_files = []
-    for root, dirs, filenames in os.walk("espurna"):
-        for name in filenames:
-            if not name.endswith(".cpp"):
-                continue
+    app_add_builder_single_source(env)
 
-            abspath = os.path.join(os.path.abspath(root), name)
-            env.AddBuildMiddleware(lambda node: None, abspath)
-
-            relpath = os.path.relpath(abspath, "espurna")
-            cpp_files.append(relpath)
-    merge_cpp(cpp_files, "espurna/espurna_single_source.cpp")
+# handle explicit targets that are used to build .re files, and before falling into the next sconsfile
+app_add_target_build_re2c(env)

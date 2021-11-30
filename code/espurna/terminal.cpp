@@ -13,11 +13,12 @@ Copyright (C) 2020 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 
 #include "api.h"
 #include "crash.h"
+#include "mqtt.h"
 #include "settings.h"
 #include "system.h"
 #include "telnet.h"
+#include "terminal.h"
 #include "utils.h"
-#include "mqtt.h"
 #include "wifi.h"
 #include "ws.h"
 
@@ -117,6 +118,7 @@ struct TerminalIO final : public Stream {
         _read = _write;
     }
 
+    // TODO: allow DEBUG_SUPPORT=0 :/
     size_t write(const uint8_t* bytes, size_t size) override {
 #if DEBUG_SUPPORT
         debugSendBytes(bytes, size);
@@ -351,8 +353,7 @@ void _terminalInitCommands() {
     terminalRegisterCommand(F("ERASE.CONFIG"), [](const terminal::CommandContext&) {
         terminalOK();
         customResetReason(CustomResetReason::Terminal);
-        eraseSDKConfig();
-        *((int*) 0) = 0; // see https://github.com/esp8266/Arduino/issues/1494
+        forceEraseSDKConfig();
     });
 
     terminalRegisterCommand(F("ADC"), [](const terminal::CommandContext& ctx) {
@@ -404,11 +405,9 @@ void _terminalInitCommands() {
     });
 
     terminalRegisterCommand(F("HEAP"), [](const terminal::CommandContext& ctx) {
-        static auto initial = systemInitialFreeHeap();
-
-        auto stats = systemHeapStats();
-        ctx.output.printf_P(PSTR("initial: %u, available: %u, fragmentation: %hhu%%\n"),
-            initial, stats.available, stats.frag_pct);
+        const auto stats = systemHeapStats();
+        ctx.output.printf_P(PSTR("initial: %lu available: %lu contiguous: %hu\n"),
+            systemInitialFreeHeap(), stats.available, stats.usable);
 
         terminalOK(ctx);
     });
@@ -420,12 +419,8 @@ void _terminalInitCommands() {
     });
 
     terminalRegisterCommand(F("INFO"), [](const terminal::CommandContext& ctx) {
-        if (!systemCheck()) {
-            ctx.output.print(F("\n\n!!! device is in safe mode !!!\n\n"));
-        }
-
         ctx.output.printf_P(PSTR("%s %s built %s\n"), getAppName(), getVersion(), buildTime().c_str());
-        ctx.output.printf_P(PSTR("mcu: esp8266 chipid: %s\n"), getFullChipId().c_str());
+        ctx.output.printf_P(PSTR("mcu: esp8266 chipid: %s freq: %hhumhz\n"), getFullChipId().c_str(), system_get_cpu_freq());
         ctx.output.printf_P(PSTR("sdk: %s core: %s\n"),
                 ESP.getSdkVersion(), getCoreVersion().c_str());
         ctx.output.printf_P(PSTR("md5: %s\n"), ESP.getSketchMD5().c_str());
@@ -433,7 +428,10 @@ void _terminalInitCommands() {
 #if SENSOR_SUPPORT
         ctx.output.printf_P(PSTR("sensors: %s\n"), getEspurnaSensors());
 #endif
-
+#if SYSTEM_CHECK_ENABLED
+        ctx.output.printf_P(PSTR("system: %s boot counter: %u\n"),
+            systemCheck() ? PSTR("OK") : PSTR("UNSTABLE"), systemStabilityCounter());
+#endif
 #if DEBUG_SUPPORT
         crashResetReason(ctx.output);
 #endif
@@ -459,7 +457,6 @@ void _terminalInitCommands() {
         // app is at a normal location, [0...size), but... since it is offset by the free space, make sure it is aligned
         // to the sector size (...and it is expected from the getFreeSketchSpace, as the app will align to use the fixed
         // sector address for OTA writes).
-
         layouts.add("sdk", 4 * SPI_FLASH_SEC_SIZE);
         layouts.add("eeprom", eepromSpace());
 
@@ -468,7 +465,6 @@ void _terminalInitCommands() {
 
         // OTA is allowed to use all but one eeprom sectors that, leaving the last one
         // for the settings snapshot during the update
-
         layouts.add("ota", ota_size);
         layouts.add("app", app_size);
 
@@ -561,6 +557,7 @@ void _terminalInitCommands() {
 
 void _terminalLoop() {
 
+    // TODO: custom Stream input, don't depend on debug logging output as input
 #if DEBUG_SERIAL_SUPPORT
     while (DEBUG_PORT.available()) {
         _io.inject(DEBUG_PORT.read());

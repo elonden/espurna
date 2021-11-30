@@ -11,7 +11,7 @@ Copyright (C) 2019 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 
 */
 
-#include "ntp.h"
+#include "espurna.h"
 
 #if NTP_SUPPORT
 
@@ -19,6 +19,7 @@ Copyright (C) 2019 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 #include <coredecls.h>
 #include <Ticker.h>
 
+#include <ctime>
 #include <lwip/apps/sntp.h>
 #include <TZ.h>
 
@@ -31,6 +32,7 @@ static_assert(
 
 #include "config/buildtime.h"
 
+#include "ntp.h"
 #include "ntp_timelib.h"
 #include "ws.h"
 
@@ -227,7 +229,7 @@ void _ntpReport() {
         return;
     }
 
-    auto info = ntpInfo();
+    const auto info = ntpInfo();
     DEBUG_MSG_P(PSTR("[NTP] Server     : %s\n"), _ntp_server.c_str());
     DEBUG_MSG_P(PSTR("[NTP] Sync Time  : %s (UTC)\n"), info.sync.c_str());
     DEBUG_MSG_P(PSTR("[NTP] UTC Time   : %s\n"), info.utc.c_str());

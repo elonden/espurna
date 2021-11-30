@@ -87,12 +87,12 @@ long  __attribute__((deprecated("Please avoid using map() with Core 2.3.0"))) ma
 // Proxy min & max same as the latest Arduino.h
 // -----------------------------------------------------------------------------
 
-#if defined(ARDUINO_ESP8266_RELEASE_2_3_0)
-
 #undef min
 #undef max
 #undef _min
 #undef _max
+
+#if defined(ARDUINO_ESP8266_RELEASE_2_3_0)
 
 #include <algorithm>
 
@@ -100,9 +100,6 @@ using std::min;
 using std::max;
 using std::isinf;
 using std::isnan;
-
-#define _min(a,b) ({ decltype(a) _a = (a); decltype(b) _b = (b); _a < _b? _a : _b; })
-#define _max(a,b) ({ decltype(a) _a = (a); decltype(b) _b = (b); _a > _b? _a : _b; })
 
 #endif
 
@@ -122,6 +119,16 @@ std::unique_ptr<T> make_unique(Args&&... args) {
 template <typename T>
 constexpr const T& clamp(const T& value, const T& low, const T& high) {
     return (value < low) ? low : (high < value) ? high : value;
+}
+
+template <typename T, size_t Size>
+constexpr size_t size(const T (&)[Size]) {
+    return Size;
+}
+
+template <typename T>
+constexpr size_t size(const T& value) {
+    return value.size();
 }
 
 } // namespace std

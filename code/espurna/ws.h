@@ -9,16 +9,15 @@ Copyright (C) 2019 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 
 #pragma once
 
-#include "espurna.h"
-
 #include <ArduinoJson.h>
 
-#include <queue>
 #include <functional>
 #include <vector>
 
 #include "web.h"
 #include "utils.h"
+
+#include "ws_utils.h"
 
 // Generalized WS lifetime callbacks.
 // Each callback is kept as std::function, thus we can use complex objects, and not just basic function pointers.
@@ -94,7 +93,7 @@ void wsPostSequence(uint32_t client_id, const ws_on_send_callback_list_t& cbs);
 void wsPostSequence(const ws_on_send_callback_list_t& cbs);
 
 // Immmediatly try to serialize and send JsonObject&
-// May silently fail when network is busy sending previous requests
+// May silently fail when network is busy sending previous requests, or there's not enough RAM
 
 void wsSend(JsonObject& root);
 void wsSend(uint32_t client_id, JsonObject& root);
@@ -102,12 +101,6 @@ void wsSend(uint32_t client_id, JsonObject& root);
 void wsSend(JsonObject& root);
 void wsSend(ws_on_send_callback_f callback);
 void wsSend(const char* data);
-
-// Immediatly try to serialize and send raw char data
-// (also, see above)
-
-void wsSend_P(const char* data);
-void wsSend_P(uint32_t client_id, const char* data);
 
 // Check if any or specific client_id is connected
 // Server will try to set unique ID for each client
