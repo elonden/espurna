@@ -125,12 +125,13 @@ int clear(unsigned char sda, unsigned char scl) {
     pinMode(sda, INPUT_PULLUP);
     pinMode(scl, INPUT_PULLUP);
 
-    nice_delay(2500);
     // Wait 2.5 secs. This is strictly only necessary on the first power
     // up of the DS3231 module to allow it to initialize properly,
     // but is also assists in reliable programming of FioV3 boards as it gives the
     // IDE a chance to start uploaded the program
     // before existing sketch confuses the IDE by sending Serial data.
+    espurna::time::blockingDelay(
+        espurna::duration::Milliseconds(2500));
 
     // If it is held low the device cannot become the I2C master
     // I2C bus error. Could not clear SCL clock line held low
@@ -162,7 +163,8 @@ int clear(unsigned char sda, unsigned char scl) {
         int counter = 20;
         while (scl_low && (counter > 0)) {
             counter--;
-            nice_delay(100);
+            espurna::time::blockingDelay(
+                espurna::duration::Milliseconds(100));
             scl_low = (digitalRead(scl) == LOW);
         }
 
@@ -231,7 +233,7 @@ void init() {
 #if TERMINAL_SUPPORT
 
 void initTerminalCommands() {
-    terminalRegisterCommand(F("I2C.SCAN"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("I2C.SCAN"), [](::terminal::CommandContext&& ctx) {
         unsigned char devices { 0 };
         i2c::scan([&](unsigned char address) {
             ++devices;
@@ -246,7 +248,7 @@ void initTerminalCommands() {
         terminalError(ctx, F("No devices found"));
     });
 
-    terminalRegisterCommand(F("I2C.CLEAR"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("I2C.CLEAR"), [](::terminal::CommandContext&& ctx) {
         ctx.output.printf("result: %d\n", i2c::clear());
         terminalOK(ctx);
     });

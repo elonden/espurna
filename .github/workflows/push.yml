@@ -17,16 +17,11 @@ jobs:
     - uses: actions/setup-python@v2
       with:
         python-version: '3.x'
-    - name: Cache pip
+    - name: Cache CMake
       uses: actions/cache@v2
       with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('ci_install.sh') }}
-    - name: Cache PlatformIO
-      uses: actions/cache@v2
-      with:
-        path: ~/.platformio
-        key: ${{ runner.os }}-${{ hashFiles('code/platformio.ini') }}
+        path: code/test/unit/cache
+        key: ${{ runner.os }}-cmake-${{ hashFiles('code/test/unit/CMakeLists.txt') }}
     - name: Host tests
       run: |
         ./ci_install.sh host
@@ -43,7 +38,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: ~/.npm
-        key: ${{ runner.os }}-${{ hashFiles('code/package-lock.json', 'code/package.json') }}
+        key: ${{ runner.os }}-npm-${{ hashFiles('code/package-lock.json', 'code/package.json') }}
     - name: WebUI tests
       run: |
         ./ci_install.sh webui
@@ -70,7 +65,7 @@ jobs:
       uses: actions/cache@v2
       with:
         path: ~/.platformio
-        key: ${{ runner.os }}-${{ hashFiles('code/platformio.ini') }}
+        key: ${{ runner.os }}-${{ matrix.env }}-${{ hashFiles('code/platformio.ini') }}
     - name: PlatformIO prepare
       run: |
         git config --global advice.detachedHead false

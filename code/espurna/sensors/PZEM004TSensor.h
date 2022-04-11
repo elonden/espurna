@@ -466,18 +466,18 @@ constexpr BaseEmonSensor::Magnitude PZEM004TSensor::Magnitudes[];
 
 void PZEM004TSensor::registerTerminalCommands() {
 #if TERMINAL_SUPPORT
-    terminalRegisterCommand(F("PZ.DEVICES"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("PZ.DEVICES"), [](::terminal::CommandContext&& ctx) {
         foreach([&](const PZEM004TSensor& device) {
             ctx.output.printf("%s\n", device._address.toString().c_str());
         });
         terminalOK(ctx);
     });
 
-    terminalRegisterCommand(F("PZ.PORTS"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("PZ.PORTS"), [](::terminal::CommandContext&& ctx) {
         auto it = _ports.begin();
         auto end = _ports.end();
 
-        if (ctx.argc == 2) {
+        if (ctx.argv.size() == 2) {
             auto offset = settings::internal::convert<size_t>(ctx.argv[1]);
             if (offset >= _ports.size()) {
                 terminalError(ctx, F("Invalid port ID"));
@@ -519,8 +519,8 @@ void PZEM004TSensor::registerTerminalCommands() {
 
     // Set the *currently connected* device address
     // (ref. comment at the top, shouldn't do this when multiple devices are connected)
-    terminalRegisterCommand(F("PZ.ADDRESS"), [](const terminal::CommandContext& ctx) {
-        if (ctx.argc != 3) {
+    terminalRegisterCommand(F("PZ.ADDRESS"), [](::terminal::CommandContext&& ctx) {
+        if (ctx.argv.size() != 3) {
             terminalError(ctx, F("PZ.ADDRESS <PORT> <ADDRESS>"));
             return;
         }

@@ -26,6 +26,7 @@ Copyright (C) 2020-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 
 #include <cfloat>
 #include <cmath>
+#include <cstring>
 
 #include <limits>
 #include <vector>
@@ -227,7 +228,6 @@ namespace {
 
 class sensor_magnitude_t {
 private:
-    constexpr static double _unset = std::numeric_limits<double>::quiet_NaN();
     static unsigned char _counts[MAGNITUDE_MAX];
 
     sensor_magnitude_t& operator=(const sensor_magnitude_t&) = default;
@@ -271,13 +271,13 @@ public:
     sensor::Unit units { sensor::Unit::None }; // Units of measurement
     unsigned char decimals { 0u }; // Number of decimals in textual representation
 
-    double last { _unset };     // Last raw value from sensor (unfiltered)
-    double reported { _unset }; // Last reported value
+    double last { sensor::Value::Unknown };     // Last raw value from sensor (unfiltered)
+    double reported { sensor::Value::Unknown }; // Last reported value
     double min_delta { 0.0 };   // Minimum value change to report
     double max_delta { 0.0 };   // Maximum value change to report
     double correction { 0.0 };  // Value correction (applied when processing)
 
-    double zero_threshold { _unset }; // Reset value to zero when below threshold (applied when reading)
+    double zero_threshold { sensor::Value::Unknown }; // Reset value to zero when below threshold (applied when reading)
 };
 
 static_assert(
@@ -400,6 +400,197 @@ void Energy::reset() {
     ws.value = 0;
 }
 
+namespace convert {
+namespace temperature {
+namespace {
+
+struct Base {
+    constexpr Base() = default;
+    constexpr explicit Base(double value) :
+        _value(value)
+    {}
+
+    constexpr double value() const {
+        return _value;
+    }
+
+    constexpr operator double() const {
+        return _value;
+    }
+
+private:
+    double _value { 0.0 };
+};
+
+struct Kelvin : public Base {
+    using Base::Base;
+};
+
+struct Farenheit : public Base {
+    using Base::Base;
+};
+
+struct Celcius : public Base {
+    using Base::Base;
+};
+
+static constexpr Celcius AbsoluteZero { -273.15 };
+
+namespace internal {
+
+template <typename To, typename From>
+struct Converter;
+
+static constexpr double celcius_to_kelvin(double celcius) {
+    return celcius - AbsoluteZero;
+}
+
+static constexpr double celcius_to_farenheit(double celcius) {
+    return (celcius * (9.0 / 5.0)) + 32.0;
+}
+
+static constexpr double farenheit_to_celcius(double farenheit) {
+    return (farenheit - 32.0) * (5.0 / 9.0);
+}
+
+static constexpr double farenheit_to_kelvin(double farenheit) {
+    return celcius_to_kelvin(farenheit_to_celcius(farenheit));
+}
+
+static constexpr double kelvin_to_celcius(double kelvin) {
+    return kelvin + AbsoluteZero;
+}
+
+static constexpr double kelvin_to_farenheit(double kelvin) {
+    return celcius_to_farenheit(kelvin_to_celcius(kelvin));
+}
+
+static_assert(celcius_to_kelvin(kelvin_to_celcius(0.0)) == 0.0, "");
+static_assert(celcius_to_farenheit(farenheit_to_celcius(0.0)) == 0.0, "");
+static_assert(farenheit_to_kelvin(kelvin_to_farenheit(0.0)) == 0.0, "");
+static_assert(farenheit_to_celcius(celcius_to_farenheit(0.0)) == 0.0, "");
+static_assert(kelvin_to_celcius(celcius_to_kelvin(0.0)) == 0.0, "");
+
+// ref. https://en.cppreference.com/w/cpp/types/numeric_limits/epsilon
+static constexpr bool almost_equal(double lhs, double rhs, int ulp) {
+    // the machine epsilon has to be scaled to the magnitude of the values used
+    // and multiplied by the desired precision in ULPs (units in the last place)
+    return __builtin_fabs(lhs - rhs) <= std::numeric_limits<double>::epsilon() * __builtin_fabs(lhs + rhs) * ulp
+        // unless the result is subnormal
+        || __builtin_fabs(lhs - rhs) < std::numeric_limits<double>::min();
+}
+
+static_assert(almost_equal(10.0, kelvin_to_farenheit(farenheit_to_kelvin(10.0)), 3), "");
+
+template <>
+struct Converter<Kelvin, Kelvin> {
+    static constexpr Kelvin convert(Kelvin kelvin) {
+        return kelvin;
+    }
+};
+
+template <>
+struct Converter<Celcius, Kelvin> {
+    static constexpr Celcius convert(Kelvin kelvin) {
+        return Celcius{ kelvin_to_celcius(kelvin.value()) };
+    }
+};
+
+template <>
+struct Converter<Farenheit, Kelvin> {
+    static constexpr Farenheit convert(Kelvin kelvin) {
+        return Farenheit{ kelvin_to_farenheit(kelvin.value()) };
+    }
+};
+
+template <>
+struct Converter<Celcius, Celcius> {
+    static constexpr Celcius convert(Celcius celcius) {
+        return celcius;
+    }
+};
+
+template <>
+struct Converter<Kelvin, Celcius> {
+    static constexpr Kelvin convert(Celcius celcius) {
+        return Kelvin{ celcius_to_kelvin(celcius.value()) };
+    }
+};
+
+template <>
+struct Converter<Farenheit, Celcius> {
+    static constexpr Farenheit convert(Celcius celcius) {
+        return Farenheit{ celcius_to_farenheit(celcius.value()) };
+    }
+};
+
+template <>
+struct Converter<Farenheit, Farenheit> {
+    static constexpr Farenheit convert(Farenheit farenheit) {
+        return farenheit;
+    }
+};
+
+template <>
+struct Converter<Kelvin, Farenheit> {
+    static constexpr Kelvin convert(Farenheit farenheit) {
+        return Kelvin{ farenheit_to_kelvin(farenheit.value()) };
+    }
+};
+
+template <>
+struct Converter<Celcius, Farenheit> {
+    static constexpr Celcius convert(Farenheit farenheit) {
+        return Celcius{ farenheit_to_celcius(farenheit.value()) };
+    }
+};
+
+// just some sanity checks. note that floating point will not always produce exact results
+// (and it might not be a good idea to actually have anything compare with the Farenheit one)
+
+static_assert(Converter<Kelvin, Kelvin>::convert(Kelvin{0.0}) == Kelvin{0.0}, "");
+static_assert(Converter<Celcius, Celcius>::convert(AbsoluteZero) == AbsoluteZero, "");
+
+} // namespace internal
+
+template <typename To, typename From>
+constexpr To unit_cast(From value) {
+    return internal::Converter<To, From>::convert(value);
+}
+
+static_assert(unit_cast<Kelvin>(AbsoluteZero).value() == 0.0, "");
+static_assert(unit_cast<Celcius>(AbsoluteZero).value() == AbsoluteZero.value(), "");
+
+// since the outside api only works with the enumeration, make sure to cast it to our types for conversion
+// a table like this could've also worked
+// > {sensor::Unit(from), sensor::Unit(to), Converter(double(*)(double))}
+// but, it is ~0.6KiB vs. ~0.1KiB for this one. plus, some obstacles with c++11 implementation
+// although, there may be a way to make this cheaper in both compile-time and runtime
+
+// attempt to convert the input value from one unit to the other
+// will return the input value when units match or there's no known conversion
+static constexpr double convert(double value, sensor::Unit from, sensor::Unit to) {
+#define UNIT_CAST(FROM, TO) \
+    ((from == sensor::Unit::FROM) && (to == sensor::Unit::TO)) \
+        ? (unit_cast<TO>(FROM{value}))
+
+     return UNIT_CAST(Kelvin, Kelvin) :
+        UNIT_CAST(Kelvin, Celcius) :
+        UNIT_CAST(Kelvin, Farenheit) :
+        UNIT_CAST(Celcius, Celcius) :
+        UNIT_CAST(Celcius, Kelvin) :
+        UNIT_CAST(Celcius, Farenheit) :
+        UNIT_CAST(Farenheit, Farenheit) :
+        UNIT_CAST(Farenheit, Kelvin) :
+        UNIT_CAST(Farenheit, Celcius) : value;
+
+#undef UNIT_CAST
+}
+
+} // namespace
+} // namespace temperature
+} // namespace convert
+
 namespace {
 namespace build {
 
@@ -465,56 +656,80 @@ bool realTimeValues() {
 
 namespace settings {
 namespace internal {
+namespace {
+
+alignas(4) static constexpr char Farenheit[] PROGMEM = "°F";
+alignas(4) static constexpr char Celcius[] PROGMEM = "°C";
+alignas(4) static constexpr char Kelvin[] PROGMEM = "K";
+alignas(4) static constexpr char Percentage[] PROGMEM = "%";
+alignas(4) static constexpr char Hectopascal[] PROGMEM = "hPa";
+alignas(4) static constexpr char Ampere[] PROGMEM = "A";
+alignas(4) static constexpr char Volt[] PROGMEM = "V";
+alignas(4) static constexpr char Watt[] PROGMEM = "W";
+alignas(4) static constexpr char Kilowatt[] PROGMEM = "kW";
+alignas(4) static constexpr char Voltampere[] PROGMEM = "VA";
+alignas(4) static constexpr char Kilovoltampere[] PROGMEM = "kVA";
+alignas(4) static constexpr char VoltampereReactive[] PROGMEM = "VAR";
+alignas(4) static constexpr char KilovoltampereReactive[] PROGMEM = "kVAR";
+alignas(4) static constexpr char Joule[] PROGMEM = "J";
+alignas(4) static constexpr char KilowattHour[] PROGMEM = "kWh";
+alignas(4) static constexpr char MicrogrammPerCubicMeter[] PROGMEM = "µg/m³";
+alignas(4) static constexpr char PartsPerMillion[] PROGMEM = "ppm";
+alignas(4) static constexpr char Lux[] PROGMEM = "lux";
+alignas(4) static constexpr char UltravioletIndex[] PROGMEM = "UVindex";
+alignas(4) static constexpr char Ohm[] PROGMEM = "ohm";
+alignas(4) static constexpr char MilligrammPerCubicMeter[] PROGMEM = "mg/m³";
+alignas(4) static constexpr char CountsPerMinute[] PROGMEM = "cpm";
+alignas(4) static constexpr char MicrosievertPerHour[] PROGMEM = "µSv/h";
+alignas(4) static constexpr char Meter[] PROGMEM = "m";
+alignas(4) static constexpr char Hertz[] PROGMEM = "Hz";
+alignas(4) static constexpr char Ph[] PROGMEM = "pH";
+alignas(4) static constexpr char None[] PROGMEM = "none";
+
+static constexpr ::settings::options::Enumeration<sensor::Unit> SensorUnitOptions[] PROGMEM {
+    {sensor::Unit::Farenheit, Farenheit},
+    {sensor::Unit::Celcius, Celcius},
+    {sensor::Unit::Kelvin, Kelvin},
+    {sensor::Unit::Percentage, Percentage},
+    {sensor::Unit::Hectopascal, Hectopascal},
+    {sensor::Unit::Ampere, Ampere},
+    {sensor::Unit::Volt, Volt},
+    {sensor::Unit::Watt, Watt},
+    {sensor::Unit::Kilowatt, Kilowatt},
+    {sensor::Unit::Voltampere, Voltampere},
+    {sensor::Unit::Kilovoltampere, Kilovoltampere},
+    {sensor::Unit::VoltampereReactive, VoltampereReactive},
+    {sensor::Unit::KilovoltampereReactive, KilovoltampereReactive},
+    {sensor::Unit::Joule, Joule},
+    {sensor::Unit::WattSecond, Joule},
+    {sensor::Unit::KilowattHour, KilowattHour},
+    {sensor::Unit::MicrogrammPerCubicMeter, MicrogrammPerCubicMeter},
+    {sensor::Unit::PartsPerMillion, PartsPerMillion},
+    {sensor::Unit::Lux, Lux},
+    {sensor::Unit::UltravioletIndex, UltravioletIndex},
+    {sensor::Unit::Ohm, Ohm},
+    {sensor::Unit::MilligrammPerCubicMeter, MilligrammPerCubicMeter},
+    {sensor::Unit::CountsPerMinute, CountsPerMinute},
+    {sensor::Unit::MicrosievertPerHour, MicrosievertPerHour},
+    {sensor::Unit::Meter, Meter},
+    {sensor::Unit::Hertz, Hertz},
+    {sensor::Unit::Ph, Ph},
+    {sensor::Unit::None, None},
+};
+
+} // namespace
 
 template <>
 sensor::Unit convert(const String& value) {
-    auto len = value.length();
-    if (len && isNumber(value)) {
-        constexpr int Min { static_cast<int>(sensor::Unit::Min_) };
-        constexpr int Max { static_cast<int>(sensor::Unit::Max_) };
-        auto num = convert<int>(value);
-        if ((Min < num) && (num < Max)) {
-            return static_cast<sensor::Unit>(num);
-        }
-    }
-
-    return sensor::Unit::None;
+    return convert(SensorUnitOptions, value, sensor::Unit::None);
 }
 
 String serialize(sensor::Unit unit) {
-    return serialize(static_cast<int>(unit));
+    return serialize(SensorUnitOptions, unit);
 }
 
 } // namespace internal
 } // namespace settings
-
-namespace {
-
-// -----------------------------------------------------------------------------
-// Configuration
-// -----------------------------------------------------------------------------
-
-constexpr double _magnitudeCorrection(unsigned char type) {
-    return (
-        (MAGNITUDE_TEMPERATURE == type) ? (SENSOR_TEMPERATURE_CORRECTION) :
-        (MAGNITUDE_HUMIDITY == type) ? (SENSOR_HUMIDITY_CORRECTION) :
-        (MAGNITUDE_LUX == type) ? (SENSOR_LUX_CORRECTION) :
-        (MAGNITUDE_PRESSURE == type) ? (SENSOR_PRESSURE_CORRECTION) :
-        0.0
-    );
-}
-
-constexpr bool _magnitudeCorrectionSupported(unsigned char type) {
-    return (
-        (MAGNITUDE_TEMPERATURE == type) ? (true) :
-        (MAGNITUDE_HUMIDITY == type) ? (true) :
-        (MAGNITUDE_LUX == type) ? (true) :
-        (MAGNITUDE_PRESSURE == type) ? (true) :
-        false
-    );
-}
-
-} // namespace
 
 // -----------------------------------------------------------------------------
 // Energy persistence
@@ -523,7 +738,6 @@ constexpr bool _magnitudeCorrectionSupported(unsigned char type) {
 namespace {
 
 struct SensorEnergyTracker {
-    static constexpr int Every { SENSOR_SAVE_EVERY };
     using Magnitude = std::reference_wrapper<sensor_magnitude_t>;
 
     struct Counter {
@@ -984,94 +1198,7 @@ String _magnitudeTopic(unsigned char type) {
 }
 
 String _magnitudeUnits(sensor::Unit unit) {
-    const __FlashStringHelper* result { F("") };
-
-    switch (unit) {
-    case sensor::Unit::Farenheit:
-        result = F("°F");
-        break;
-    case sensor::Unit::Celcius:
-        result = F("°C");
-        break;
-    case sensor::Unit::Kelvin:
-        result = F("K");
-        break;
-    case sensor::Unit::Percentage:
-        result = F("%");
-        break;
-    case sensor::Unit::Hectopascal:
-        result = F("hPa");
-        break;
-    case sensor::Unit::Ampere:
-        result = F("A");
-        break;
-    case sensor::Unit::Volt:
-        result = F("V");
-        break;
-    case sensor::Unit::Watt:
-        result = F("W");
-        break;
-    case sensor::Unit::Kilowatt:
-        result = F("kW");
-        break;
-    case sensor::Unit::Voltampere:
-        result = F("VA");
-        break;
-    case sensor::Unit::Kilovoltampere:
-        result = F("kVA");
-        break;
-    case sensor::Unit::VoltampereReactive:
-        result = F("VAR");
-        break;
-    case sensor::Unit::KilovoltampereReactive:
-        result = F("kVAR");
-        break;
-    case sensor::Unit::Joule:
-    //aka case sensor::Unit::WattSecond:
-        result = F("J");
-        break;
-    case sensor::Unit::KilowattHour:
-        result = F("kWh");
-        break;
-    case sensor::Unit::MicrogrammPerCubicMeter:
-        result = F("µg/m³");
-        break;
-    case sensor::Unit::PartsPerMillion:
-        result = F("ppm");
-        break;
-    case sensor::Unit::Lux:
-        result = F("lux");
-        break;
-    case sensor::Unit::UltravioletIndex:
-        break;
-    case sensor::Unit::Ohm:
-        result = F("ohm");
-        break;
-    case sensor::Unit::MilligrammPerCubicMeter:
-        result = F("mg/m³");
-        break;
-    case sensor::Unit::CountsPerMinute:
-        result = F("cpm");
-        break;
-    case sensor::Unit::MicrosievertPerHour:
-        result = F("µSv/h");
-        break;
-    case sensor::Unit::Meter:
-        result = F("m");
-        break;
-    case sensor::Unit::Hertz:
-        result = F("Hz");
-        break;
-    case sensor::Unit::Ph:
-        result = F("pH");
-        break;
-    case sensor::Unit::Min_:
-    case sensor::Unit::Max_:
-    case sensor::Unit::None:
-        break;
-    }
-
-    return String(result);
+    return ::settings::internal::serialize(unit);
 }
 
 String _magnitudeUnits(const sensor_magnitude_t& magnitude) {
@@ -1307,34 +1434,34 @@ sensor::Unit _magnitudeUnitFilter(const sensor_magnitude_t& magnitude, sensor::U
 double _magnitudeProcess(const sensor_magnitude_t& magnitude, double value) {
 
     // Process input (sensor) units and convert to the ones that magnitude specifies as output
-    switch (magnitude.sensor->units(magnitude.slot)) {
-        case sensor::Unit::Celcius:
-            if (magnitude.units == sensor::Unit::Farenheit) {
-                value = (value * 1.8) + 32.0;
-            } else if (magnitude.units == sensor::Unit::Kelvin) {
-                value = value + 273.15;
-            }
-            break;
-        case sensor::Unit::Percentage:
-            value = constrain(value, 0.0, 100.0);
-            break;
-        case sensor::Unit::Watt:
-        case sensor::Unit::Voltampere:
-        case sensor::Unit::VoltampereReactive:
-            if ((magnitude.units == sensor::Unit::Kilowatt)
-                || (magnitude.units == sensor::Unit::Kilovoltampere)
-                || (magnitude.units == sensor::Unit::KilovoltampereReactive)) {
-                value = value / 1.0e+3;
-            }
-            break;
-        case sensor::Unit::KilowattHour:
-            // TODO: we may end up with inf at some point?
-            if (magnitude.units == sensor::Unit::Joule) {
-                value = value * 3.6e+6;
-            }
-            break;
-        default:
-            break;
+    const auto source = magnitude.sensor->units(magnitude.slot);
+
+    switch (source) {
+    case sensor::Unit::Farenheit:
+    case sensor::Unit::Kelvin:
+    case sensor::Unit::Celcius:
+        value = sensor::convert::temperature::convert(value, source, magnitude.units);
+        break;
+    case sensor::Unit::Percentage:
+        value = std::clamp(value, 0.0, 100.0);
+        break;
+    case sensor::Unit::Watt:
+    case sensor::Unit::Voltampere:
+    case sensor::Unit::VoltampereReactive:
+        if ((magnitude.units == sensor::Unit::Kilowatt)
+            || (magnitude.units == sensor::Unit::Kilovoltampere)
+            || (magnitude.units == sensor::Unit::KilovoltampereReactive)) {
+            value = value / 1.0e+3;
+        }
+        break;
+    case sensor::Unit::KilowattHour:
+        // TODO: we may end up with inf at some point?
+        if (magnitude.units == sensor::Unit::Joule) {
+            value = value * 3.6e+6;
+        }
+        break;
+    default:
+        break;
     }
 
     value = value + magnitude.correction;
@@ -1464,7 +1591,7 @@ const __FlashStringHelper* _magnitudeSettingsPrefix(unsigned char type) {
 
 template <typename T>
 String _magnitudeSettingsKey(unsigned char type, T&& suffix) {
-    return String(_magnitudeSettingsPrefix(type)) + suffix;
+    return String(_magnitudeSettingsPrefix(type)) + std::forward<T>(suffix);
 }
 
 template <typename T>
@@ -1472,25 +1599,58 @@ String _magnitudeSettingsKey(sensor_magnitude_t& magnitude, T&& suffix) {
     return _magnitudeSettingsKey(magnitude.type, std::forward<T>(suffix));
 }
 
-const char RatioKey[] PROGMEM = "Ratio";
+constexpr double _magnitudeCorrection(unsigned char type) {
+    return (
+        (MAGNITUDE_TEMPERATURE == type) ? (SENSOR_TEMPERATURE_CORRECTION) :
+        (MAGNITUDE_HUMIDITY == type) ? (SENSOR_HUMIDITY_CORRECTION) :
+        (MAGNITUDE_LUX == type) ? (SENSOR_LUX_CORRECTION) :
+        (MAGNITUDE_PRESSURE == type) ? (SENSOR_PRESSURE_CORRECTION) :
+        0.0
+    );
+}
 
-bool _sensorMatchKeyPrefix(const char* key) {
-    if (strncmp_P(key, PSTR("sns"), 3) == 0) {
+constexpr bool _magnitudeCorrectionSupported(unsigned char type) {
+  return (MAGNITUDE_TEMPERATURE == type)
+      || (MAGNITUDE_HUMIDITY == type)
+      || (MAGNITUDE_LUX == type)
+      || (MAGNITUDE_PRESSURE == type);
+}
+
+SettingsKey _magnitudeSettingsCorrectionKey(unsigned char type, size_t index) {
+    static constexpr char Key[] PROGMEM { "Correction" };
+    return {_magnitudeSettingsKey(type, FPSTR(Key)), index};
+}
+
+SettingsKey _magnitudeSettingsCorrectionKey(const sensor_magnitude_t& magnitude) {
+    return _magnitudeSettingsCorrectionKey(magnitude.type, magnitude.index_global);
+}
+
+bool _sensorCheckKeyPrefix(::settings::StringView key) {
+    if (key.length() < 3) {
+        return false;
+    }
+
+    using settings::query::samePrefix;
+    using settings::StringView;
+
+    alignas(4) static constexpr char SensorPrefix[] PROGMEM = "sns";
+    if (samePrefix(key, SensorPrefix)) {
         return true;
     }
 
-    if (strncmp_P(key, PSTR("pwr"), 3) == 0) {
+    alignas(4) static constexpr char PowerPrefix[] PROGMEM = "pwr";
+    if (samePrefix(key, PowerPrefix)) {
         return true;
     }
 
-    const String _key(key);
     return _magnitudeForEachCountedCheck([&](unsigned char type) {
-        return _key.startsWith(_magnitudeSettingsPrefix(type));
+        return samePrefix(key, StringView{_magnitudeSettingsPrefix(type)});
     });
 }
 
 SettingsKey _magnitudeSettingsRatioKey(unsigned char type, size_t index) {
-    return {_magnitudeSettingsKey(type, RatioKey), index};
+    static constexpr char RatioKey[] PROGMEM { "Ratio" };
+    return {_magnitudeSettingsKey(type, FPSTR(RatioKey)), index};
 }
 
 SettingsKey _magnitudeSettingsRatioKey(const sensor_magnitude_t& magnitude) {
@@ -1508,38 +1668,26 @@ constexpr bool _magnitudeRatioSupported(unsigned char type) {
         || (type == MAGNITUDE_ENERGY);
 }
 
-String _sensorQueryDefault(const String& key) {
-    auto get_defaults = [](sensor_magnitude_t* magnitude) -> String {
-        if (magnitude && _sensorIsEmon(magnitude->sensor)) {
-            auto* sensor = static_cast<BaseEmonSensor*>(magnitude->sensor);
-            if (_magnitudeRatioSupported(magnitude->type)) {
-                return String(sensor->defaultRatio(magnitude->slot));
-            }
-        }
+String _sensorQueryHandler(::settings::StringView key) {
+    String out;
 
-        return String();
-    };
-
-    auto magnitude_key = [](const sensor_magnitude_t& magnitude) -> SettingsKey {
-        if (_magnitudeRatioSupported(magnitude.type)) {
-            return _magnitudeSettingsRatioKey(magnitude);
-        }
-
-        return "";
-    };
-
-    sensor_magnitude_t* target { nullptr };
     for (auto& magnitude : _magnitudes) {
         if (_magnitudeRatioSupported(magnitude.type)) {
-            auto ratioKey(magnitude_key(magnitude));
-            if (ratioKey == key) {
-                target = &magnitude;
+            auto expected = String(_magnitudeSettingsRatioKey(magnitude));
+            if (key == expected) {
+                out = String(reinterpret_cast<BaseEmonSensor*>(magnitude.sensor)->defaultRatio(magnitude.slot));
+                break;
+            }
+        } else if (_magnitudeCorrectionSupported(magnitude.type)) {
+            auto expected = String(_magnitudeSettingsCorrectionKey(magnitude));
+            if (key == expected) {
+                out = String(magnitude.correction);
                 break;
             }
         }
     }
 
-    return get_defaults(target);
+    return out;
 }
 
 } // namespace
@@ -1611,7 +1759,7 @@ double _sensorApiEmonExpectedValue(const sensor_magnitude_t& magnitude, double e
 namespace {
 
 bool _sensorWebSocketOnKeyCheck(const char* key, JsonVariant&) {
-    return _sensorMatchKeyPrefix(key);
+    return _sensorCheckKeyPrefix(key);
 }
 
 String _sensorError(unsigned char error) {
@@ -1785,40 +1933,40 @@ String _magnitudeName(unsigned char type) {
 // make sure these are properly ordered, as UI does not delay processing
 
 void _sensorWebSocketTypes(JsonObject& root) {
-    ::web::ws::EnumerableConfig config{root, F("types")};
-    config(F("values"), {MAGNITUDE_NONE + 1, MAGNITUDE_MAX},
+    ::web::ws::EnumerablePayload payload{root, STRING_VIEW("types")};
+    payload(STRING_VIEW("values"), {MAGNITUDE_NONE + 1, MAGNITUDE_MAX},
         [](size_t type) {
             return sensor_magnitude_t::counts(type) > 0;
         },
         {
-            {F("type"), [](JsonArray& out, size_t index) {
+            {STRING_VIEW("type"), [](JsonArray& out, size_t index) {
                 out.add(index);
             }},
-            {F("prefix"), [](JsonArray& out, size_t index) {
+            {STRING_VIEW("prefix"), [](JsonArray& out, size_t index) {
                 out.add(_magnitudeSettingsPrefix(index));
             }},
-            {F("name"), [](JsonArray& out, size_t index) {
+            {STRING_VIEW("name"), [](JsonArray& out, size_t index) {
                 out.add(_magnitudeName(index));
             }}
         });
 }
 
 void _sensorWebSocketErrors(JsonObject& root) {
-    ::web::ws::EnumerableConfig config{root, F("errors")};
-    config(F("values"), SENSOR_ERROR_MAX, {
-        {F("type"), [](JsonArray& out, size_t index) {
+    ::web::ws::EnumerablePayload payload{root, STRING_VIEW("errors")};
+    payload(STRING_VIEW("values"), SENSOR_ERROR_MAX, {
+        {STRING_VIEW("type"), [](JsonArray& out, size_t index) {
             out.add(index);
         }},
-        {F("name"), [](JsonArray& out, size_t index) {
+        {STRING_VIEW("name"), [](JsonArray& out, size_t index) {
             out.add(_sensorError(index));
         }}
     });
 }
 
 void _sensorWebSocketUnits(JsonObject& root) {
-    ::web::ws::EnumerableConfig config{root, F("units")};
-    config(F("values"), _magnitudes.size(), {
-        {F("supported"), [](JsonArray& out, size_t index) {
+    ::web::ws::EnumerablePayload payload{root, STRING_VIEW("units")};
+    payload(STRING_VIEW("values"), _magnitudes.size(), {
+        {STRING_VIEW("supported"), [](JsonArray& out, size_t index) {
             JsonArray& units = out.createNestedArray();
             const auto range = _magnitudeUnitsRange(_magnitudes[index].type);
             for (auto it = range.begin(); it != range.end(); ++it) {
@@ -1831,18 +1979,18 @@ void _sensorWebSocketUnits(JsonObject& root) {
 }
 
 void _sensorWebSocketList(JsonObject& root) {
-    ::web::ws::EnumerableConfig config{root, F("magnitudes-list")};
-    config(F("values"), _magnitudes.size(), {
-        {F("index_global"), [](JsonArray& out, size_t index) {
+    ::web::ws::EnumerablePayload payload{root, STRING_VIEW("magnitudes-list")};
+    payload(STRING_VIEW("values"), _magnitudes.size(), {
+        {STRING_VIEW("index_global"), [](JsonArray& out, size_t index) {
             out.add(_magnitudes[index].index_global);
         }},
-        {F("type"), [](JsonArray& out, size_t index) {
+        {STRING_VIEW("type"), [](JsonArray& out, size_t index) {
             out.add(_magnitudes[index].type);
         }},
-        {F("description"), [](JsonArray& out, size_t index) {
+        {STRING_VIEW("description"), [](JsonArray& out, size_t index) {
             out.add(_magnitudeDescription(_magnitudes[index]));
         }},
-        {F("units"), [](JsonArray& out, size_t index) {
+        {STRING_VIEW("units"), [](JsonArray& out, size_t index) {
             out.add(static_cast<int>(_magnitudes[index].units));
         }}
     });
@@ -1854,9 +2002,9 @@ void _sensorWebSocketSettings(JsonObject& root) {
     // NaN, instead of more commonly used null (but, expect this to be fixed after switching to v6+)
     static const char* const NullSymbol { nullptr };
 
-    ::web::ws::EnumerableConfig config{root, F("magnitudes-settings")};
-    config(F("values"), _magnitudes.size(), {
-        {F("Correction"), [](JsonArray& out, size_t index) {
+    ::web::ws::EnumerablePayload payload{root, STRING_VIEW("magnitudes-settings")};
+    payload(STRING_VIEW("values"), _magnitudes.size(), {
+        {STRING_VIEW("Correction"), [](JsonArray& out, size_t index) {
             const auto& magnitude = _magnitudes[index];
             if (_magnitudeCorrectionSupported(magnitude.type)) {
                 out.add(magnitude.correction);
@@ -1864,7 +2012,7 @@ void _sensorWebSocketSettings(JsonObject& root) {
                 out.add(NullSymbol);
             }
         }},
-        {F("Ratio"), [](JsonArray& out, size_t index) {
+        {STRING_VIEW("Ratio"), [](JsonArray& out, size_t index) {
             const auto& magnitude = _magnitudes[index];
             if (_magnitudeRatioSupported(magnitude.type)) {
                 out.add(static_cast<BaseEmonSensor*>(magnitude.sensor)->getRatio(magnitude.slot));
@@ -1872,7 +2020,7 @@ void _sensorWebSocketSettings(JsonObject& root) {
                 out.add(NullSymbol);
             }
         }},
-        {F("ZeroThreshold"), [](JsonArray& out, size_t index) {
+        {STRING_VIEW("ZeroThreshold"), [](JsonArray& out, size_t index) {
             const auto threshold = _magnitudes[index].zero_threshold;
             if (!std::isnan(threshold)) {
                 out.add(threshold);
@@ -1880,10 +2028,10 @@ void _sensorWebSocketSettings(JsonObject& root) {
                 out.add(NullSymbol);
             }
         }},
-        {F("MinDelta"), [](JsonArray& out, size_t index) {
+        {STRING_VIEW("MinDelta"), [](JsonArray& out, size_t index) {
             out.add(_magnitudes[index].min_delta);
         }},
-        {F("MaxDelta"), [](JsonArray& out, size_t index) {
+        {STRING_VIEW("MaxDelta"), [](JsonArray& out, size_t index) {
             out.add(_magnitudes[index].max_delta);
         }}
     });
@@ -1896,32 +2044,34 @@ void _sensorWebSocketSettings(JsonObject& root) {
 }
 
 void _sensorWebSocketSendData(JsonObject& root) {
-    ::web::ws::EnumerableConfig config{root, F("magnitudes")};
-    config(F("values"), _magnitudes.size(), {
-        {F("value"), [](JsonArray& out, size_t index) {
-            char buffer[64];
-            dtostrf(_magnitudeProcess(
-                _magnitudes[index], _magnitudes[index].last),
-                1, _magnitudes[index].decimals, buffer);
-            out.add(buffer);
-        }},
-        {F("error"), [](JsonArray& out, size_t index) {
-            out.add(_magnitudes[index].sensor->error());
-        }},
-        {F("info"), [](JsonArray& out, size_t index) {
+    if (_magnitudes.size()) {
+        ::web::ws::EnumerablePayload payload{root, STRING_VIEW("magnitudes")};
+        payload(STRING_VIEW("values"), _magnitudes.size(), {
+            {STRING_VIEW("value"), [](JsonArray& out, size_t index) {
+                char buffer[64];
+                dtostrf(_magnitudeProcess(
+                    _magnitudes[index], _magnitudes[index].last),
+                    1, _magnitudes[index].decimals, buffer);
+                out.add(buffer);
+            }},
+            {STRING_VIEW("error"), [](JsonArray& out, size_t index) {
+                out.add(_magnitudes[index].sensor->error());
+            }},
+            {STRING_VIEW("info"), [](JsonArray& out, size_t index) {
 #if NTP_SUPPORT
-            if ((_magnitudes[index].type == MAGNITUDE_ENERGY) && (_sensor_energy_tracker)) {
-                out.add(String(F("Last saved: "))
-                    + getSetting({"eneTime", _magnitudes[index].index_global},
-                        F("(unknown)")));
-            } else {
+                if ((_magnitudes[index].type == MAGNITUDE_ENERGY) && (_sensor_energy_tracker)) {
+                    out.add(String(F("Last saved: "))
+                        + getSetting({"eneTime", _magnitudes[index].index_global},
+                            F("(unknown)")));
+                } else {
 #endif
-                out.add("");
+                    out.add("");
 #if NTP_SUPPORT
-            }
+                }
 #endif
-        }}
-    });
+            }}
+        });
+    }
 }
 
 void _sensorWebSocketOnAction(uint32_t client_id, const char* action, JsonObject& data) {
@@ -1929,7 +2079,7 @@ void _sensorWebSocketOnAction(uint32_t client_id, const char* action, JsonObject
         auto id = data["id"].as<size_t>();
         if (id < _magnitudes.size()) {
             auto expected = data["expected"].as<float>();
-            wsPost([client_id, id, expected](JsonObject& root) {
+            wsPost(client_id, [id, expected](JsonObject& root) {
                 const auto& magnitude = _magnitudes[id];
 
                 String key { F("result:") };
@@ -2030,19 +2180,19 @@ void _sensorWebSocketOnConnectedSettings(JsonObject& root) {
 // Prefix controls the UI templates, supplied callback should retrieve module-specific value Id
 
 void sensorWebSocketMagnitudes(JsonObject& root, const char* prefix, SensorWebSocketMagnitudesCallback callback) {
-    ::web::ws::EnumerableConfig config{root, F("magnitudes-module")};
+    ::web::ws::EnumerablePayload payload{root, STRING_VIEW("magnitudes-module")};
 
-    auto& container = config.root();
+    auto& container = payload.root();
     container[F("prefix")] = prefix;
 
-    config(F("values"), _magnitudes.size(), {
-        {F("type"), [](JsonArray& out, size_t index) {
+    payload(STRING_VIEW("values"), _magnitudes.size(), {
+        {STRING_VIEW("type"), [](JsonArray& out, size_t index) {
             out.add(_magnitudes[index].type);
         }},
-        {F("index_global"), [](JsonArray& out, size_t index) {
+        {STRING_VIEW("index_global"), [](JsonArray& out, size_t index) {
             out.add(_magnitudes[index].index_global);
         }},
-        {F("index_module"), callback}
+        {STRING_VIEW("index_module"), callback}
     });
 }
 
@@ -2164,6 +2314,7 @@ void _sensorMqttCallback(unsigned int type, const char* topic, char* payload) {
                 _sensorApiResetEnergy(magnitude, static_cast<const char*>(payload));
                 break;
             }
+            break;
         }
         case MQTT_CONNECT_EVENT: {
             for (auto& magnitude : _magnitudes) {
@@ -2173,9 +2324,9 @@ void _sensorMqttCallback(unsigned int type, const char* topic, char* payload) {
                     break;
                 }
             }
+            break;
         }
         case MQTT_DISCONNECT_EVENT:
-        default:
             break;
     }
 }
@@ -2189,7 +2340,7 @@ void _sensorMqttCallback(unsigned int type, const char* topic, char* payload) {
 namespace {
 
 void _sensorInitCommands() {
-    terminalRegisterCommand(F("MAGNITUDES"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("MAGNITUDES"), [](::terminal::CommandContext&& ctx) {
         char last[64];
         char reported[64];
         for (size_t index = 0; index < _magnitudes.size(); ++index) {
@@ -2203,7 +2354,7 @@ void _sensorInitCommands() {
         terminalOK();
     });
 
-    terminalRegisterCommand(F("EXPECTED"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("EXPECTED"), [](::terminal::CommandContext&& ctx) {
         if (ctx.argv.size() == 3) {
             const auto id = settings::internal::convert<size_t>(ctx.argv[1]);
             if (id < _magnitudes.size()) {
@@ -2222,12 +2373,12 @@ void _sensorInitCommands() {
         terminalError(ctx, F("EXPECTED <ID> <VALUE>"));
     });
 
-    terminalRegisterCommand(F("RESET.RATIOS"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("RESET.RATIOS"), [](::terminal::CommandContext&& ctx) {
         _sensorApiEmonResetRatios();
         terminalOK(ctx);
     });
 
-    terminalRegisterCommand(F("ENERGY"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("ENERGY"), [](::terminal::CommandContext&& ctx) {
         using IndexType = decltype(sensor_magnitude_t::index_global);
 
         if (ctx.argv.size() == 3) {
@@ -3108,8 +3259,9 @@ void _sensorConfigure() {
             // TODO: inject math or rpnlib expression?
             {
                 if (_magnitudeCorrectionSupported(magnitude.type)) {
-                    auto key = String(_magnitudeSettingsPrefix(magnitude.type)) + F("Correction");
-                    magnitude.correction = getSetting({key, magnitude.index_global}, getSetting(key, _magnitudeCorrection(magnitude.type)));
+                    magnitude.correction = getSetting(
+                        _magnitudeSettingsCorrectionKey(magnitude),
+                        _magnitudeCorrection(magnitude.type));
                 }
             }
 
@@ -3142,7 +3294,7 @@ void _sensorConfigure() {
             {
                 magnitude.zero_threshold = getSetting(
                     {_magnitudeSettingsKey(magnitude, F("ZeroThreshold")), magnitude.index_global},
-                    std::numeric_limits<double>::quiet_NaN()
+                    sensor::Value::Unknown
                 );
             }
 
@@ -3198,8 +3350,14 @@ String magnitudeTopic(unsigned char type) {
     return _magnitudeTopic(type);
 }
 
-double sensor::Value::get() {
+double sensor::Value::get() const {
     return real_time ? last : reported;
+}
+
+String sensor::Value::toString() const {
+    char buffer[64] { 0 };
+    dtostrf(real_time ? last : reported, 1, decimals, buffer);
+    return buffer;
 }
 
 sensor::Value magnitudeValue(unsigned char index) {
@@ -3211,24 +3369,9 @@ sensor::Value magnitudeValue(unsigned char index) {
         result.last = magnitude.last;
         result.reported = magnitude.reported;
         result.decimals = magnitude.decimals;
-    } else {
-        result.real_time = false;
-        result.last = std::numeric_limits<double>::quiet_NaN(),
-        result.reported = std::numeric_limits<double>::quiet_NaN(),
-        result.decimals = 0u;
     }
 
     return result;
-}
-
-void magnitudeFormat(const sensor::Value& value, char* out, size_t) {
-    // TODO: 'size' does not do anything, since dtostrf used here is expected to be 'sane', but
-    //       it does not allow any size arguments besides for digits after the decimal point
-    dtostrf(
-        _sensor_real_time ? value.last : value.reported,
-        1, value.decimals,
-        out
-    );
 }
 
 unsigned char magnitudeIndex(unsigned char index) {
@@ -3318,10 +3461,9 @@ void sensorSetup() {
     _sensorConfigure();
 
     // Allow us to query key default
-    _magnitudeForEachCounted([](unsigned char type) {
-        if (_magnitudeRatioSupported(type)) {
-            settingsRegisterDefaults(_magnitudeSettingsPrefix(type), _sensorQueryDefault);
-        }
+    settingsRegisterQueryHandler({
+        .check = _sensorCheckKeyPrefix,
+        .get = _sensorQueryHandler
     });
 
     // Websockets integration, send sensor readings and configuration

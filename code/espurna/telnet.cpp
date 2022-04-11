@@ -101,7 +101,7 @@ void _telnetWebSocketOnVisible(JsonObject& root) {
     wsPayloadModule(root, "telnet");
 }
 
-bool _telnetWebSocketOnKeyCheck(const char * key, JsonVariant& value) {
+bool _telnetWebSocketOnKeyCheck(const char * key, JsonVariant&) {
     return (strncmp(key, "telnet", 6) == 0);
 }
 
@@ -183,14 +183,12 @@ void _telnetDisconnect(unsigned char clientId) {
 
 #elif TELNET_SERVER == TELNET_SERVER_ASYNC
 
-void _telnetCleanUp() {
-    schedule_function([] () {
-        for (unsigned char clientId=0; clientId < TELNET_MAX_CLIENTS; ++clientId) {
-            if (!_telnetClients[clientId]->connected()) {
-                _telnetClients[clientId] = nullptr;
-                DEBUG_MSG_P(PSTR("[TELNET] Client #%d disconnected\n"), clientId);
-                wifiApCheck();
-            }
+void _telnetCleanUp(unsigned char id) {
+    schedule_function([id] () {
+        if (_telnetClients[id] && !_telnetClients[id]->connected()) {
+            _telnetClients[id] = nullptr;
+            DEBUG_MSG_P(PSTR("[TELNET] Client #%d disconnected\n"), id);
+            wifiApCheck();
         }
     });
 }
@@ -223,7 +221,7 @@ void AsyncBufferedClient::_s_onAck(void* client_ptr, AsyncClient*, size_t, uint3
     _trySend(reinterpret_cast<AsyncBufferedClient*>(client_ptr));
 }
 
-void AsyncBufferedClient::_s_onPoll(void* client_ptr, AsyncClient* client) {
+void AsyncBufferedClient::_s_onPoll(void* client_ptr, AsyncClient*) {
     _trySend(reinterpret_cast<AsyncBufferedClient*>(client_ptr));
 }
 
@@ -325,10 +323,12 @@ size_t _telnetWrite(unsigned char clientId, const char * message) {
 }
 
 void _telnetData(unsigned char clientId, char * data, size_t len) {
+    static constexpr unsigned char TelnetIac { 0xFF };
+    static constexpr unsigned char TelnetXeof { 0xEC };
 
-    if ((len >= 2) && (data[0] == TELNET_IAC)) {
+    if ((len >= 2) && (static_cast<unsigned char>(data[0]) == TelnetIac)) {
         // C-d is sent as two bytes (sometimes repeating)
-        if (data[1] == TELNET_XEOF) {
+        if (static_cast<unsigned char>(data[1]) == TelnetXeof) {
             _telnetDisconnect(clientId);
         }
         return; // Ignore telnet negotiation
@@ -444,14 +444,14 @@ void _telnetLoop() {
 
 void _telnetSetupClient(unsigned char i, AsyncClient *client) {
 
-    client->onError([i](void *s, AsyncClient *client, int8_t error) {
+    client->onError([i](void*, AsyncClient *client, int8_t error) {
         DEBUG_MSG_P(PSTR("[TELNET] Error %s (%d) on client #%u\n"), client->errorToString(error), error, i);
     });
     client->onData([i](void*, AsyncClient*, void *data, size_t len){
         _telnetData(i, reinterpret_cast<char*>(data), len);
     });
     client->onDisconnect([i](void*, AsyncClient*) {
-        _telnetCleanUp();
+        _telnetCleanUp(i);
     });
 
     // XXX: AsyncClient does not have copy ctor
@@ -470,7 +470,7 @@ void _telnetNewClient(AsyncClient* client) {
 
         if (!can_connect) {
             DEBUG_MSG_P(PSTR("[TELNET] Rejecting - Only local connections\n"));
-            client->onDisconnect([](void *s, AsyncClient *c) {
+            client->onDisconnect([](void*, AsyncClient *c) {
                 delete c;
             });
             client->close(true);
@@ -489,7 +489,7 @@ void _telnetNewClient(AsyncClient* client) {
     }
 
     DEBUG_MSG_P(PSTR("[TELNET] Rejecting - Too many connections\n"));
-    client->onDisconnect([](void *s, AsyncClient *c) {
+    client->onDisconnect([](void*, AsyncClient *c) {
         delete c;
     });
     client->close(true);
@@ -526,7 +526,7 @@ bool telnetDebugSend(const char* prefix, const char* data) {
 #endif // DEBUG_TELNET_SUPPORT
 
 unsigned char telnetWrite(unsigned char ch) {
-    char data[1] = {ch};
+    const char data[1] { static_cast<char>(ch) };
     return _telnetWrite(data, 1);
 }
 
@@ -542,7 +542,7 @@ void telnetSetup() {
         _telnetServer.begin();
         espurnaRegisterLoop(_telnetLoop);
     #else
-        _telnetServer.onClient([](void *s, AsyncClient* c) {
+        _telnetServer.onClient([](void*, AsyncClient* c) {
             _telnetNewClient(c);
         }, nullptr);
         _telnetServer.begin();
@@ -561,14 +561,14 @@ void telnetSetup() {
         #endif
 
         #if TERMINAL_SUPPORT
-            terminalRegisterCommand(F("TELNET.REVERSE"), [](const terminal::CommandContext& ctx) {
-                if (ctx.argc < 3) {
-                    terminalError(F("Wrong arguments. Usage: TELNET.REVERSE <host> <port>"));
+            terminalRegisterCommand(F("TELNET.REVERSE"), [](::terminal::CommandContext&& ctx) {
+                if (ctx.argv.size() < 3) {
+                    terminalError(ctx, F("Wrong arguments. Usage: TELNET.REVERSE <host> <port>"));
                     return;
                 }
 
-                terminalOK();
                 _telnetReverse(ctx.argv[1].c_str(), ctx.argv[2].toInt());
+                terminalOK(ctx);
             });
         #endif
     #endif

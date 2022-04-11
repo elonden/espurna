@@ -36,20 +36,22 @@ bool haveRelaysOrSensors();
 String prettyDuration(espurna::duration::Seconds);
 String getUptime();
 
-void infoHeapStats(const char* name, const HeapStats& stats);
-void infoHeapStats(bool show_frag_stats = false);
-void infoMemory(const char* name, unsigned int total_memory, unsigned int free_memory);
-
 bool sslCheckFingerPrint(const char * fingerprint);
 bool sslFingerPrintArray(const char * fingerprint, unsigned char * bytearray);
 bool sslFingerPrintChar(const char * fingerprint, char * destination);
 
 char* strnstr(const char* buffer, const char* token, size_t n);
+bool isNumber(const char* begin, const char* end);
 bool isNumber(const String&);
 
-void nice_delay(unsigned long ms);
+uint32_t randomNumber();
+uint32_t randomNumber(uint32_t minimum, uint32_t maximum);
 
 double roundTo(double num, unsigned char positions);
+
+uint32_t parseUnsigned(const String&, int base);
+uint32_t parseUnsigned(const String&);
+String formatUnsigned(uint32_t value, int base);
 
 char* hexEncode(const uint8_t* in_begin, const uint8_t* in_end, char* out_begin, char* out_end);
 size_t hexEncode(const uint8_t* in, size_t in_size, char* out, size_t out_size);

@@ -9,12 +9,12 @@ Copyright (C) 2020-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 For the library, see:
 https://github.com/crankyoldgit/IRremoteESP8266
 
-To (re)create the string -> Payload decoder .inc files, add `re2c` to the $PATH and 'run' the environment:
+To (re)create the string -> Payload decoder .ipp files, add `re2c` to the $PATH and 'run' the environment:
 ```
 $ pio run -e ... \
-    -t espurna/ir_parse_simple.re.cpp.ipp \
-    -t espurna/ir_parse_state.re.cpp.ipp \
-    -t espurna/ir_parse_raw.re.cpp.ipp
+    -t espurna/ir_parse_simple.re.ipp \
+    -t espurna/ir_parse_state.re.ipp \
+    -t espurna/ir_parse_raw.re.ipp
 ```
 (see scripts/pio_pre.py and scripts/espurna_utils/build.py for more info)
 
@@ -715,7 +715,7 @@ Payload prepare(StringView type, StringView value, StringView bits, StringView r
     return result;
 }
 
-#include "ir_parse_simple.re.cpp.ipp"
+#include "ir_parse_simple.re.ipp"
 
 } // namespace simple
 
@@ -825,7 +825,7 @@ Payload prepare(StringView frequency, StringView series, StringView delay, declt
     return result;
 }
 
-#include "ir_parse_raw.re.cpp.ipp"
+#include "ir_parse_raw.re.ipp"
 
 } // namespace raw
 
@@ -952,7 +952,7 @@ Payload prepare(StringView type, StringView value, StringView series, StringView
     return result;
 }
 
-#include "ir_parse_state.re.cpp.ipp"
+#include "ir_parse_state.re.ipp"
 
 } // namespace state
 
@@ -1648,7 +1648,7 @@ void process(rx::DecodeResult& result) {
 }
 
 void setup() {
-    terminalRegisterCommand(F("IR.SEND"), [](const ::terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("IR.SEND"), [](::terminal::CommandContext&& ctx) {
         if (ctx.argv.size() == 2) {
             auto view = StringView{ctx.argv[1]};
 

@@ -64,17 +64,14 @@ namespace {
 #include "static/server.key.h"
 #endif // WEB_SSL_ENABLED
 
-AsyncWebPrint::AsyncWebPrint(const AsyncWebPrintConfig& config, AsyncWebServerRequest* request) :
-    mimeType(config.mimeType),
-    backlogCountMax(config.backlogCountMax),
-    backlogSizeMax(config.backlogSizeMax),
-    backlogTimeout(config.backlogTimeout),
+AsyncWebPrint::AsyncWebPrint(AsyncWebPrintConfig config, AsyncWebServerRequest* request) :
+    _config(config),
     _request(request),
     _state(State::None)
 {}
 
 bool AsyncWebPrint::_addBuffer() {
-    if ((_buffers.size() + 1) > backlogCountMax) {
+    if ((_buffers.size() + 1) > _config.backlog.count) {
         if (!_exhaustBuffers()) {
             _state = State::Error;
             return false;
@@ -83,7 +80,7 @@ bool AsyncWebPrint::_addBuffer() {
 
     // Note: c++17, emplace returns created object reference
     //       c++11, we need to use .back()
-    _buffers.emplace_back(backlogSizeMax, 0);
+    _buffers.emplace_back(_config.backlog.size, 0);
     _buffers.back().clear();
 
     return true;
@@ -103,7 +100,7 @@ bool AsyncWebPrint::_addBuffer() {
 void AsyncWebPrint::_prepareRequest() {
     _state = State::Sending;
 
-    auto *response = _request->beginChunkedResponse(mimeType, [this](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+    auto *response = _request->beginChunkedResponse(_config.mimeType, [this](uint8_t *buffer, size_t maxLen, size_t) -> size_t {
         switch (_state) {
         case State::None:
             return RESPONSE_TRY_AGAIN;
@@ -159,9 +156,13 @@ bool AsyncWebPrint::_exhaustBuffers() {
         _prepareRequest();
     }
 
-    const auto start = millis();
+    constexpr espurna::duration::Seconds Timeout { 5 };
+
+    using TimeSource = espurna::time::CoreClock;
+    const auto start = TimeSource::now();
+
     do {
-        if (millis() - start > 5000) {
+        if (TimeSource::now() - start > Timeout) {
             _buffers.clear();
             break;
         }
@@ -220,7 +221,7 @@ bool _webConfigSuccess = false;
 std::vector<web_request_callback_f> _web_request_callbacks;
 std::vector<web_body_callback_f> _web_body_callbacks;
 
-constexpr unsigned long WebConfigBufferMax { 4096ul };
+static constexpr size_t WebConfigBufferMax { 4096 };
 
 } // namespace
 
@@ -241,7 +242,7 @@ void _onReset(AsyncWebServerRequest *request) {
         return;
     }
 
-    deferredReset(100, CustomResetReason::Web);
+    prepareReset(CustomResetReason::Web);
     request->send(200);
 }
 
@@ -275,7 +276,6 @@ void _onGetConfig(AsyncWebServerRequest *request) {
     auto out = std::make_shared<String>();
     out->reserve(TCP_MSS);
 
-
     char buffer[256];
     int prefix_len = snprintf_P(buffer, sizeof(buffer),
             PSTR("{\n\"app\": \"%s\",\n\"version\": \"%s\",\n\"backup\": \"1\""),
@@ -299,12 +299,6 @@ void _onGetConfig(AsyncWebServerRequest *request) {
     *out += "\n}";
 
     auto hostname = getHostname();
-    auto timestamp = String(millis());
-#if NTP_SUPPORT
-    if (ntpSynced()) {
-        timestamp = ntpDateTime();
-    }
-#endif
 
     AsyncWebServerResponse* response = request->beginChunkedResponse("application/json",
         [out](uint8_t* buffer, size_t maxLen, size_t index) -> size_t {
@@ -322,8 +316,19 @@ void _onGetConfig(AsyncWebServerRequest *request) {
             return have;
         });
 
+    auto get_timestamp = []() -> String {
+#if NTP_SUPPORT
+        if (ntpSynced()) {
+            return ntpDateTime();
+        }
+#endif
+        return String(espurna::time::millis().time_since_epoch().count(), 10);
+    };
+
     int written = snprintf_P(buffer, sizeof(buffer),
-        PSTR("attachment; filename=\"%s %s backup.json\""), hostname.c_str(), timestamp.c_str());
+        PSTR("attachment; filename=\"%s %s backup.json\""),
+        hostname.c_str(), get_timestamp().c_str());
+
     if (written > 0) {
         response->addHeader("Content-Disposition", buffer);
         response->addHeader("X-XSS-Protection", "1; mode=block");
@@ -345,7 +350,7 @@ void _onPostConfig(AsyncWebServerRequest *request) {
     request->send(_webConfigSuccess ? 200 : 400);
 }
 
-void _onPostConfigFile(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+void _onPostConfigFile(AsyncWebServerRequest *request, String, size_t index, uint8_t *data, size_t len, bool final) {
 
     if (!webAuthenticate(request)) {
         _webRequestAuth(request);

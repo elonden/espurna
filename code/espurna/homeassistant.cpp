@@ -337,16 +337,16 @@ public:
     const String& message() override {
         if (!_message.length()) {
             auto& json = root();
-            json["dev"] = _ctx.device();
-            json["avty_t"] = _relay.availability.c_str();
-            json["pl_avail"] = _relay.payload_available.c_str();
-            json["pl_not_avail"] = _relay.payload_not_available.c_str();
-            json["pl_on"] = _relay.payload_on.c_str();
-            json["pl_off"] = _relay.payload_off.c_str();
-            json["uniq_id"] = uniqueId();
-            json["name"] = _ctx.name() + ' ' + _index;
-            json["stat_t"] = mqttTopic(MQTT_TOPIC_RELAY, _index, false);
-            json["cmd_t"] = mqttTopic(MQTT_TOPIC_RELAY, _index, true);
+            json[F("dev")] = _ctx.device();
+            json[F("avty_t")] = _relay.availability.c_str();
+            json[F("pl_avail")] = _relay.payload_available.c_str();
+            json[F("pl_not_avail")] = _relay.payload_not_available.c_str();
+            json[F("pl_on")] = _relay.payload_on.c_str();
+            json[F("pl_off")] = _relay.payload_off.c_str();
+            json[F("uniq_id")] = uniqueId();
+            json[F("name")] = _ctx.name() + ' ' + _index;
+            json[F("stat_t")] = mqttTopic(MQTT_TOPIC_RELAY, _index, false);
+            json[F("cmd_t")] = mqttTopic(MQTT_TOPIC_RELAY, _index, true);
             json.printTo(_message);
         }
         return _message;
@@ -451,22 +451,22 @@ public:
         if (!_message.length()) {
             auto& json = root();
 
-            json["schema"] = "json";
-            json["uniq_id"] = uniqueId();
+            json[F("schema")] = "json";
+            json[F("uniq_id")] = uniqueId();
 
-            json["name"] = _ctx.name() + ' ' + F("Light");
+            json[F("name")] = _ctx.name() + ' ' + F("Light");
 
-            json["stat_t"] = mqttTopic(MQTT_TOPIC_LIGHT_JSON, false);
-            json["cmd_t"] = mqttTopic(MQTT_TOPIC_LIGHT_JSON, true);
+            json[F("stat_t")] = mqttTopic(MQTT_TOPIC_LIGHT_JSON, false);
+            json[F("cmd_t")] = mqttTopic(MQTT_TOPIC_LIGHT_JSON, true);
 
-            json["avty_t"] = mqttTopic(MQTT_TOPIC_STATUS, false);
-            json["pl_avail"] = quote(mqttPayloadStatus(true));
-            json["pl_not_avail"] = quote(mqttPayloadStatus(false));
+            json[F("avty_t")] = mqttTopic(MQTT_TOPIC_STATUS, false);
+            json[F("pl_avail")] = quote(mqttPayloadStatus(true));
+            json[F("pl_not_avail")] = quote(mqttPayloadStatus(false));
 
             // send `true` for every payload we support sending / receiving
             // already enabled by default: "state", "transition"
 
-            json["brightness"] = true;
+            json[F("brightness")] = true;
 
             // Note that since we send back the values immediately, HS mode sliders
             // *will jump*, as calculations of input do not always match the output.
@@ -475,9 +475,9 @@ public:
 
             if (lightHasColor()) {
                 if (lightUseRGB()) {
-                    json["rgb"] = true;
+                    json[F("rgb")] = true;
                 } else {
-                    json["hs"] = true;
+                    json[F("hs")] = true;
                 }
             }
 
@@ -488,9 +488,9 @@ public:
 
             if (lightHasColor() || lightUseCCT()) {
                 auto range = lightMiredsRange();
-                json["min_mirs"] = range.cold();
-                json["max_mirs"] = range.warm();
-                json["color_temp"] = true;
+                json[F("min_mirs")] = range.cold();
+                json[F("max_mirs")] = range.warm();
+                json[F("color_temp")] = true;
             }
 
             json.printTo(_message);
@@ -574,11 +574,14 @@ void receiveLightJson(char* payload) {
         return;
     }
 
-    unsigned long transition { lightTransitionTime() };
+    auto transition = lightTransitionTime();
     if (root.containsKey("transition")) {
-        auto seconds = root["transition"].as<float>();
-        if (seconds > 0) {
-            transition = static_cast<unsigned long>(seconds * 1000.0);
+        using LocalUnit = decltype(lightTransitionTime());
+        using RemoteUnit = std::chrono::duration<float>;
+        auto seconds = RemoteUnit(root["transition"].as<float>());
+
+        if (seconds.count() > 0.0f) {
+            transition = std::chrono::duration_cast<LocalUnit>(seconds);
         }
     }
 
@@ -649,12 +652,12 @@ public:
     const String& message() override {
         if (!_message.length()) {
             auto& json = root();
-            json["dev"] = _ctx.device();
-            json["uniq_id"] = uniqueId();
+            json[F("dev")] = _ctx.device();
+            json[F("uniq_id")] = uniqueId();
 
-            json["name"] = _ctx.name() + ' ' + name() + ' ' + localId();
-            json["stat_t"] = mqttTopic(magnitudeTopicIndex(_index), false);
-            json["unit_of_meas"] = magnitudeUnits(_index);
+            json[F("name")] = _ctx.name() + ' ' + name() + ' ' + localId();
+            json[F("stat_t")] = mqttTopic(magnitudeTopicIndex(_index), false);
+            json[F("unit_of_meas")] = magnitudeUnits(_index);
 
             json.printTo(_message);
         }
@@ -721,9 +724,9 @@ public:
     using Entity = std::unique_ptr<Discovery>;
     using Entities = std::forward_list<Entity>;
 
+    static constexpr espurna::duration::Milliseconds WaitShort { 100 };
+    static constexpr espurna::duration::Milliseconds WaitLong { 1000 };
     static constexpr int Retries { 5 };
-    static constexpr unsigned long WaitShortMs { 100ul };
-    static constexpr unsigned long WaitLongMs { 1000ul };
 
     DiscoveryTask(bool enabled) :
         _enabled(enabled)
@@ -801,6 +804,9 @@ private:
     Entities _entities;
 };
 
+constexpr espurna::duration::Milliseconds DiscoveryTask::WaitShort;
+constexpr espurna::duration::Milliseconds DiscoveryTask::WaitLong;
+
 namespace internal {
 
 using TaskPtr = std::shared_ptr<DiscoveryTask>;
@@ -831,18 +837,20 @@ void stop(bool done) {
     }
 }
 
-void schedule(unsigned long wait, TaskPtr ptr, FlagPtr flag_ptr) {
-    internal::timer.once_ms_scheduled(wait, [ptr, flag_ptr]() {
-        send(ptr, flag_ptr);
-    });
+void schedule(espurna::duration::Milliseconds wait, TaskPtr ptr, FlagPtr flag_ptr) {
+    internal::timer.once_ms_scheduled(
+        wait.count(),
+        [ptr, flag_ptr]() {
+            send(ptr, flag_ptr);
+        });
 }
 
 void schedule(TaskPtr ptr, FlagPtr flag_ptr) {
-    schedule(DiscoveryTask::WaitShortMs, ptr, flag_ptr);
+    schedule(DiscoveryTask::WaitShort, ptr, flag_ptr);
 }
 
 void schedule(TaskPtr ptr) {
-    schedule(DiscoveryTask::WaitShortMs, ptr, std::make_shared<bool>(true));
+    schedule(DiscoveryTask::WaitShort, ptr, std::make_shared<bool>(true));
 }
 
 void send(TaskPtr ptr, FlagPtr flag_ptr) {
@@ -884,8 +892,8 @@ void send(TaskPtr ptr, FlagPtr flag_ptr) {
 #endif
 
     auto wait = res
-        ? DiscoveryTask::WaitShortMs
-        : DiscoveryTask::WaitLongMs;
+        ? DiscoveryTask::WaitShort
+        : DiscoveryTask::WaitLong;
 
     if (res || task.retry()) {
         schedule(wait, ptr, flag_ptr);
@@ -1007,7 +1015,7 @@ void haSetup() {
     mqttRegister(homeassistant::mqttCallback);
 
 #if TERMINAL_SUPPORT
-    terminalRegisterCommand(F("HA.SEND"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("HA.SEND"), [](::terminal::CommandContext&& ctx) {
         homeassistant::internal::state = homeassistant::internal::State::Pending;
         homeassistant::publishDiscovery();
         terminalOK(ctx);

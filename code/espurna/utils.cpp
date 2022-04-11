@@ -11,6 +11,8 @@ Copyright (C) 2017-2019 by Xose Pérez <xose dot perez at gmail dot com>
 #include "board.h"
 #include "ntp.h"
 
+#include <random>
+
 bool tryParseId(const char* p, TryParseIdFunc limit, size_t& out) {
     static_assert(std::numeric_limits<size_t>::max() >= std::numeric_limits<unsigned long>::max(), "");
 
@@ -203,54 +205,65 @@ bool sslFingerPrintChar(const char * fingerprint, char * destination) {
 // Helper functions
 // -----------------------------------------------------------------------------
 
+// using 'random device' as-is, while most common implementations
+// would've used it as a seed for some generator func
+// TODO notice that stdlib std::mt19937 struct needs ~2KiB for it's internal
+// `result_type state[std::mt19937::state_size]` (ref. sizeof())
+uint32_t randomNumber(uint32_t minimum, uint32_t maximum) {
+    using Device = espurna::system::RandomDevice;
+    using Type = Device::result_type;
+
+    static Device random;
+    auto distribution = std::uniform_int_distribution<Type>(minimum, maximum);
+
+    return distribution(random);
+}
+
+uint32_t randomNumber() {
+    return (espurna::system::RandomDevice{})();
+}
+
 double roundTo(double num, unsigned char positions) {
     double multiplier = 1;
     while (positions-- > 0) multiplier *= 10;
     return round(num * multiplier) / multiplier;
 }
 
-void nice_delay(unsigned long ms) {
-    unsigned long start = millis();
-    while (millis() - start < ms) delay(1);
+bool isNumber(const char* begin, const char* end) {
+    bool dot { false };
+    bool digit { false };
+
+    for (auto ptr = begin; ptr != end; ++ptr) {
+        switch (*ptr) {
+        case '\0':
+            break;
+        case '-':
+        case '+':
+            if (ptr != begin) {
+                return false;
+            }
+            break;
+        case '.':
+            if (dot) {
+                return false;
+            }
+            dot = true;
+            break;
+        case '0' ... '9':
+            digit = true;
+            break;
+        case 'a' ... 'z':
+        case 'A' ... 'Z':
+            return false;
+        }
+    }
+
+    return digit;
 }
 
 bool isNumber(const String& value) {
     if (value.length()) {
-        const char* begin { value.c_str() };
-        const char* end { value.c_str() + value.length() };
-
-        bool dot { false };
-        bool digit { false };
-        const char* ptr { begin };
-
-        while (ptr != end) {
-            switch (*ptr) {
-            case '\0':
-                break;
-            case '-':
-            case '+':
-                if (ptr != begin) {
-                    return false;
-                }
-                break;
-            case '.':
-                if (dot) {
-                    return false;
-                }
-                dot = true;
-                break;
-            case '0' ... '9':
-                digit = true;
-                break;
-            case 'a' ... 'z':
-            case 'A' ... 'Z':
-                return false;
-            }
-
-            ++ptr;
-        }
-
-        return digit;
+        return isNumber(value.begin(), value.end());
     }
 
     return false;
@@ -274,8 +287,75 @@ char* strnstr(const char* buffer, const char* token, size_t n) {
 
 namespace {
 
-// From a byte array to an hexa char array ("A220EE...", double the size)
+uint32_t parseUnsignedImpl(const String& value, int base) {
+    const char* ptr { value.c_str() };
+    char* endp { nullptr };
 
+    // invalidate the whole string when invalid chars are detected
+    // while this does not return a 'result' type, we can't know
+    // whether 0 was the actual decoded number or not
+    const auto result = strtoul(ptr, &endp, base);
+    if (endp == ptr || endp[0] != '\0') {
+        return 0;
+    }
+
+    return result;
+}
+
+} // namespace
+
+uint32_t parseUnsigned(const String& value, int base) {
+    return parseUnsignedImpl(value, base);
+}
+
+uint32_t parseUnsigned(const String& value) {
+    if (!value.length()) {
+        return 0;
+    }
+
+    int base = 10;
+    if (value.length() > 2) {
+        auto* ptr = value.c_str();
+        if (*ptr == '0') {
+            switch (*(ptr + 1)) {
+            case 'b':
+                base = 2;
+                break;
+            case 'o':
+                base = 8;
+                break;
+            case 'x':
+                base = 16;
+                break;
+            }
+        }
+    }
+
+    return parseUnsignedImpl((base == 10) ? value : value.substring(2), base);
+}
+
+String formatUnsigned(uint32_t value, int base) {
+    constexpr size_t BufferSize { 8 * sizeof(decltype(value)) };
+
+    String result;
+    if (base == 2) {
+        result += "0b";
+    } else if (base == 8) {
+        result += "0o";
+    } else if (base == 16) {
+        result += "0x";
+    }
+
+    char buffer[BufferSize + 1] = {0};
+    ultoa(value, buffer, base);
+    result += buffer;
+
+    return result;
+}
+
+namespace {
+
+// From a byte array to an hexa char array ("A220EE...", double the size)
 template <typename T>
 const uint8_t* hexEncodeImpl(const uint8_t* in_begin, const uint8_t* in_end, T&& callback) {
     static const char base16[] = "0123456789ABCDEF";
@@ -339,7 +419,6 @@ size_t hexEncode(const uint8_t* in, size_t in_size, char* out, size_t out_size) 
 }
 
 // From an hexa char array ("A220EE...") to a byte array (half the size)
-
 uint8_t* hexDecode(const char* in_begin, const char* in_end, uint8_t* out_begin, uint8_t* out_end) {
     // We can only return small values (max 'z' aka 122)
     constexpr uint8_t InvalidByte { 255u };
@@ -391,7 +470,7 @@ size_t hexDecode(const char* in, size_t in_size, uint8_t* out, size_t out_size) 
 }
 
 const char* getFlashChipMode() {
-    const char* mode { nullptr };
+    static const char* mode { nullptr };
     if (!mode) {
         switch (ESP.getFlashChipMode()) {
         case FM_QIO:

@@ -73,7 +73,7 @@ void run(WiFiClient* client, const String& url) {
         break;
     case HTTP_UPDATE_OK:
         DEBUG_MSG_P(PSTR("[OTA] Done, restarting..."));
-        deferredReset(500, CustomResetReason::Ota);
+        prepareReset(CustomResetReason::Ota);
         return;
     }
 
@@ -144,8 +144,8 @@ void clientFromUrl(const String& url) {
 #if TERMINAL_SUPPORT
 
 void terminalCommands() {
-    terminalRegisterCommand(F("OTA"), [](const terminal::CommandContext& ctx) {
-        if (ctx.argc == 2) {
+    terminalRegisterCommand(F("OTA"), [](::terminal::CommandContext&& ctx) {
+        if (ctx.argv.size() == 2) {
             clientFromUrl(ctx.argv[1]);
             terminalOK(ctx);
             return;

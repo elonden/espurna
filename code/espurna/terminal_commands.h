@@ -24,7 +24,6 @@ struct Terminal;
 // Like Embedis implementation, we only pass things that we actually use instead of complete obj instance
 struct CommandContext {
     std::vector<String> argv;
-    size_t argc;
     Print& output;
 };
 
@@ -39,7 +38,7 @@ public:
         NoInput          // We got nothing in the buffer and stream read() returns -1
     };
 
-    using CommandFunc = void(*)(const CommandContext&);
+    using CommandFunc = void(*)(CommandContext&&);
     using ProcessFunc = bool(*)(Result);
 
     using Names = std::vector<const __FlashStringHelper*>;
@@ -68,8 +67,7 @@ public:
     // and we can either stop (false) or continue (true) the function.
     void process(ProcessFunc = defaultProcessFunc);
 
-    private:
-
+private:
     static bool defaultProcessFunc(Result);
 
     // general input / output stream:

@@ -101,7 +101,7 @@ void disconnect() {
 
 // -----------------------------------------------------------------------------
 
-void onDisconnect(void* arg, AsyncClient* client) {
+void onDisconnect(void* arg, AsyncClient*) {
     DEBUG_MSG_P(PSTR("\n"));
     otaFinalize(reinterpret_cast<BasicHttpClient*>(arg)->size, CustomResetReason::Ota, true);
     schedule_function(internal::disconnect);
@@ -176,7 +176,7 @@ void onData(void* arg, AsyncClient* client, void* data, size_t len) {
     }
 }
 
-void onConnect(void* arg, AsyncClient* client) {
+void onConnect(void* arg, AsyncClient*) {
     auto* ota_client = reinterpret_cast<BasicHttpClient*>(arg);
 
     #if ASYNC_TCP_SSL_ENABLED
@@ -242,8 +242,8 @@ void clientFromUrl(const String& string) {
 #if TERMINAL_SUPPORT
 
 void terminalCommands() {
-    terminalRegisterCommand(F("OTA"), [](const terminal::CommandContext& ctx) {
-        if (ctx.argc == 2) {
+    terminalRegisterCommand(F("OTA"), [](::terminal::CommandContext&& ctx) {
+        if (ctx.argv.size() == 2) {
             clientFromUrl(ctx.argv[1]);
             terminalOK(ctx);
             return;

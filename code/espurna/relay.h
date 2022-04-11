@@ -13,40 +13,52 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 #include <cstdint>
 #include <memory>
 
+#include "system.h"
 #include "rpc.h"
 
 constexpr size_t RelaysMax { 32ul };
 
-enum class RelayPulse : uint8_t {
+enum class RelayBoot {
+    Off,
+    On,
+    Same,
+    Toggle,
+    LockedOff,
+    LockedOn
+};
+
+enum class RelayLock {
     None,
     Off,
     On
 };
 
-enum class RelayLock : uint8_t {
-    None,
-    Off,
-    On
-};
-
-enum class RelayType : int {
+enum class RelayType {
     Normal,
     Inverse,
     Latched,
     LatchedInverse
 };
 
-enum class RelayMqttTopicMode : int {
+enum class RelayMqttTopicMode {
     Normal,
     Inverse
 };
 
-enum class RelayProvider: int {
+enum class RelayProvider {
     None,
     Dummy,
     Gpio,
     Dual,
     Stm
+};
+
+enum class RelaySync {
+    None,
+    ZeroOrOne,
+    JustOne,
+    All,
+    First
 };
 
 class RelayProviderBase {
@@ -94,6 +106,8 @@ const String& relayPayloadToggle();
 
 const char* relayPayload(PayloadStatus status);
 
+void relayPulse(size_t id, espurna::duration::Milliseconds, bool);
+void relayPulse(size_t id, espurna::duration::Milliseconds);
 void relayPulse(size_t id);
 void relaySync(size_t id);
 void relaySave(bool persist);

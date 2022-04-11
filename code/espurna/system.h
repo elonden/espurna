@@ -12,11 +12,12 @@ Copyright (C) 2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #include <chrono>
 #include <cstdint>
+#include <limits>
 
 struct HeapStats {
     uint32_t available;
-    uint16_t usable;
-    uint8_t frag_pct;
+    uint32_t usable;
+    uint8_t fragmentation;
 };
 
 enum class CustomResetReason : uint8_t {
@@ -34,6 +35,24 @@ enum class CustomResetReason : uint8_t {
 };
 
 namespace espurna {
+namespace system {
+
+struct RandomDevice {
+    using result_type = uint32_t;
+
+    static constexpr result_type min() {
+        return std::numeric_limits<result_type>::min();
+    }
+
+    static constexpr result_type max() {
+        return std::numeric_limits<result_type>::max();
+    }
+
+    uint32_t operator()() const;
+};
+
+} // namespace random
+
 namespace duration {
 
 // TODO: cpu frequency value might not always be true at build-time, detect at boot instead?
@@ -44,13 +63,31 @@ using ClockCycles = std::chrono::duration<uint32_t, std::ratio<1, F_CPU>>;
 using Microseconds = std::chrono::duration<uint64_t, std::micro>;
 using Milliseconds = std::chrono::duration<uint32_t, std::milli>;
 
-// Our own type, since a lot of things want this as a type of measurement
-// (and it can be seamlessly converted from millis)
+// Our own helper types, a lot of things are based off of the `millis()`
+// (and it can be seamlessly used with any Core functions accepting u32 millisecond inputs)
 using Seconds = std::chrono::duration<uint32_t>;
+using Minutes = std::chrono::duration<uint32_t, std::ratio<60>>;
+using Hours = std::chrono::duration<uint32_t, std::ratio<Minutes::period::num * 60>>;
+using Days = std::chrono::duration<uint32_t, std::ratio<Hours::period::num * 24>>;
 
+namespace critical {
+
+using Microseconds = std::chrono::duration<uint16_t, std::micro>;
+
+} // namespace critical
 } // namespace duration
 
 namespace time {
+namespace critical {
+
+// Wait for the specified amount of time *without* using SDK or Core timers.
+// Supposedly, should be the same as a simple do-while loop.
+inline void delay(duration::critical::Microseconds) __attribute__((always_inline));
+inline void delay(duration::critical::Microseconds duration) {
+    ::ets_delay_us(duration.count());
+}
+
+} // namespace critical
 
 struct CpuClock {
     using duration = espurna::duration::ClockCycles;
@@ -129,6 +166,8 @@ struct CoreClock {
     }
 };
 
+// Simple 'proxies' for most common operations
+
 inline SystemClock::time_point micros() {
     return SystemClock::now();
 }
@@ -137,9 +176,16 @@ inline CoreClock::time_point millis() {
     return CoreClock::now();
 }
 
+// Attempt to sleep for N milliseconds, but this is allowed to be woken up at any point by the SDK
 inline void delay(CoreClock::duration value) {
     ::delay(value.count());
 }
+
+// Local implementation of 'delay' that will make sure that we wait for the specified
+// time, even after being woken up. Allows to service Core tasks that are scheduled
+// in-between context switches, where the interval controls the minimum sleep time.
+void blockingDelay(CoreClock::duration timeout, CoreClock::duration interval);
+void blockingDelay(CoreClock::duration timeout);
 
 } // namespace time
 
@@ -219,13 +265,23 @@ Mode currentMode();
 } // namespace heartbeat
 } // namespace espurna
 
+namespace settings {
+namespace internal {
+
+String serialize(espurna::heartbeat::Mode);
+String serialize(espurna::duration::Seconds);
+String serialize(espurna::duration::Milliseconds);
+String serialize(espurna::duration::ClockCycles);
+
+} // namespace internal
+} // namespace settings
+
 unsigned long systemFreeStack();
 
 HeapStats systemHeapStats();
-void systemHeapStats(HeapStats&);
 
-unsigned long systemFreeHeap();
-unsigned long systemInitialFreeHeap();
+size_t systemFreeHeap();
+size_t systemInitialFreeHeap();
 
 bool eraseSDKConfig();
 void forceEraseSDKConfig();
@@ -241,7 +297,8 @@ void customResetReason(CustomResetReason);
 CustomResetReason customResetReason();
 String customResetReasonToPayload(CustomResetReason);
 
-void deferredReset(unsigned long delay, CustomResetReason reason);
+void deferredReset(espurna::duration::Milliseconds, CustomResetReason);
+void prepareReset(CustomResetReason);
 bool pendingDeferredReset();
 
 unsigned long systemLoadAverage();

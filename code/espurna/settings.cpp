@@ -42,31 +42,85 @@ static kvs_type kv_store(
 // --------------------------------------------------------------------------
 
 namespace settings {
+namespace query {
+
+String Setting::findValueFrom(const Setting* begin, const Setting* end, StringView key) {
+    String out;
+
+    for (auto it = begin; it != end; ++it) {
+        if ((*it) == key) {
+            out = (*it).value();
+            break;
+        }
+    }
+
+    return out;
+}
+
+bool IndexedSetting::findSamePrefix(const IndexedSetting* begin, const IndexedSetting* end, StringView key) {
+    for (auto it = begin; it != end; ++it) {
+        if (samePrefix(key, (*it).prefix())) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+String IndexedSetting::findValueFrom(Iota iota, const IndexedSetting* begin, const IndexedSetting* end, StringView key) {
+    String out;
+
+    while (iota) {
+        for (auto it = begin; it != end; ++it) {
+            const auto expected = SettingsKey(
+                (*it).prefix().toString(), *iota);
+            if (key == expected.value()) {
+                out = (*it).value(*iota);
+                goto output;
+            }
+        }
+        ++iota;
+    }
+
+output:
+    return out;
+}
+
 namespace internal {
 namespace {
 
-struct SettingsKeyMatcher {
-    SettingsKeyMatcher(String prefix, RetrieveDefault retrieve) :
-        _prefix(std::move(prefix)),
-        _retrieve(retrieve)
-    {}
-
-    const String& prefix() const {
-        return _prefix;
-    }
-
-    String retrieve(const String& key) const {
-        return _retrieve(key);
-    }
-
-private:
-    String _prefix;
-    RetrieveDefault _retrieve;
-};
-
-std::forward_list<SettingsKeyMatcher> matchers;
+std::forward_list<Handler> handlers;
 
 } // namespace
+} // namespace internal
+} // namespace query
+
+namespace options {
+
+bool EnumerationNumericHelper::check(const String& value) {
+    if (value.length()) {
+        if ((value.length() > 1) && (*value.begin() == '0')) {
+            return false;
+        }
+
+        for (auto it = value.begin(); it != value.end(); ++it) {
+            switch (*it) {
+            case '0'...'9':
+                break;
+            default:
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+} // namespace options
+
+namespace internal {
 
 ValueResult get(const String& key) {
     return kv_store.get(key);
@@ -105,21 +159,15 @@ void foreach(KeyValueResultCallback&& callback) {
     kv_store.foreach(callback);
 }
 
-// --------------------------------------------------------------------------
-
-uint32_t u32fromString(const String& string, int base) {
-
-    const char *ptr = string.c_str();
-    char *value_endptr = nullptr;
-
-    // invalidate the whole string when invalid chars are detected
-    const auto value = strtoul(ptr, &value_endptr, base);
-    if (value_endptr == ptr || value_endptr[0] != '\0') {
-        return 0;
-    }
-
-    return value;
-
+void foreach_prefix(PrefixResultCallback&& callback, query::StringViewIterator prefixes) {
+    kv_store.foreach([&](kvs_type::KeyValueResult&& kv) {
+        auto key = kv.key.read();
+        for (auto it = prefixes.begin(); it != prefixes.end(); ++it) {
+            if (::settings::query::samePrefix(::settings::StringView{key}, (*it))) {
+                callback((*it), std::move(key), kv.value);
+            }
+        }
+    });
 }
 
 // --------------------------------------------------------------------------
@@ -177,48 +225,11 @@ bool convert(const String& value) {
 
 template <>
 uint32_t convert(const String& value) {
-    if (!value.length()) {
-        return 0;
-    }
-
-    int base = 10;
-    if (value.length() > 2) {
-        auto* ptr = value.c_str();
-        if (*ptr == '0') {
-            switch (*(ptr + 1)) {
-            case 'b':
-                base = 2;
-                break;
-            case 'o':
-                base = 8;
-                break;
-            case 'x':
-                base = 16;
-                break;
-            }
-        }
-    }
-
-    return u32fromString((base == 10) ? value : value.substring(2), base);
+    return parseUnsigned(value);
 }
 
 String serialize(uint32_t value, int base) {
-    constexpr size_t Size { 8 * sizeof(decltype(value)) };
-
-    String result;
-    if (base == 2) {
-        result += "0b";
-    } else if (base == 8) {
-        result += "0o";
-    } else if (base == 16) {
-        result += "0x";
-    }
-
-    char buffer[Size + 1] = {0};
-    ultoa(value, buffer, base);
-    result += buffer;
-
-    return result;
+    return formatUnsigned(value, base);
 }
 
 template <>
@@ -257,17 +268,21 @@ std::vector<String> settingsKeys() {
     return keys;
 }
 
-void settingsRegisterDefaults(String prefix, settings::RetrieveDefault retrieve) {
-    settings::internal::matchers.emplace_front(std::move(prefix), retrieve);
+void settingsRegisterQueryHandler(settings::query::Handler handler) {
+    settings::query::internal::handlers.push_front(handler);
 }
 
-String settingsQueryDefaults(const String& key) {
-    for (auto& matcher : settings::internal::matchers) {
-        if (key.startsWith(matcher.prefix())) {
-            return matcher.retrieve(key);
+String settingsQuery(::settings::StringView key) {
+    String out;
+
+    for (const auto& handler : settings::query::internal::handlers) {
+        if (handler.check(key)) {
+            out = handler.get(key);
+            break;
         }
     }
-    return {};
+
+    return out;
 }
 
 void moveSetting(const String& from, const String& to) {
@@ -349,11 +364,11 @@ String getSetting(const SettingsKey& key) {
 }
 
 String getSetting(const SettingsKey& key, const char* defaultValue) {
-    return getSetting(key, std::move(String(defaultValue)));
+    return getSetting(key, String(defaultValue));
 }
 
 String getSetting(const SettingsKey& key, const __FlashStringHelper* defaultValue) {
-    return getSetting(key, std::move(String(defaultValue)));
+    return getSetting(key, String(defaultValue));
 }
 
 String getSetting(const SettingsKey& key, const String& defaultValue) {
@@ -491,10 +506,25 @@ void settingsGetJson(JsonObject& root) {
 
 #if TERMINAL_SUPPORT
 
+void settingsDump(const ::terminal::CommandContext& ctx, const ::settings::query::Setting* begin, const ::settings::query::Setting* end) {
+    for (auto it = begin; it != end; ++it) {
+        ctx.output.printf_P(PSTR("> %s => %s\n"),
+            (*it).key().c_str(), (*it).value().c_str());
+    }
+}
+
+void settingsDump(const ::terminal::CommandContext& ctx, const ::settings::query::IndexedSetting* begin, const ::settings::query::IndexedSetting* end, size_t index) {
+    for (auto it = begin; it != end; ++it) {
+        ctx.output.printf_P(PSTR("> %s%u => %s\n"),
+            (*it).prefix().c_str(), index,
+            (*it).value(index).c_str());
+    }
+}
+
 namespace {
 
 void _settingsInitCommands() {
-    terminalRegisterCommand(F("CONFIG"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("CONFIG"), [](::terminal::CommandContext&& ctx) {
         // TODO: enough of a buffer?
         DynamicJsonBuffer jsonBuffer(1024);
         JsonObject& root = jsonBuffer.createObject();
@@ -503,10 +533,8 @@ void _settingsInitCommands() {
         terminalOK(ctx);
     });
 
-    terminalRegisterCommand(F("KEYS"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("KEYS"), [](::terminal::CommandContext&& ctx) {
         auto keys = settingsKeys();
-
-        ctx.output.printf_P(PSTR("Current settings:"));
 
         String value;
         for (unsigned int i=0; i<keys.size(); i++) {
@@ -522,8 +550,8 @@ void _settingsInitCommands() {
         terminalOK(ctx);
     });
 
-    terminalRegisterCommand(F("DEL"), [](const terminal::CommandContext& ctx) {
-        if (ctx.argc < 2) {
+    terminalRegisterCommand(F("DEL"), [](::terminal::CommandContext&& ctx) {
+        if (ctx.argv.size() < 2) {
             terminalError(ctx, F("del <key> [<key>...]"));
             return;
         }
@@ -540,8 +568,8 @@ void _settingsInitCommands() {
         }
     });
 
-    terminalRegisterCommand(F("SET"), [](const terminal::CommandContext& ctx) {
-        if (ctx.argc != 3) {
+    terminalRegisterCommand(F("SET"), [](::terminal::CommandContext&& ctx) {
+        if (ctx.argv.size() != 3) {
             terminalError(ctx, F("set <key> <value>"));
             return;
         }
@@ -554,20 +582,20 @@ void _settingsInitCommands() {
         terminalError(ctx, F("could not set the key"));
     });
 
-    terminalRegisterCommand(F("GET"), [](const terminal::CommandContext& ctx) {
-        if (ctx.argc < 2) {
+    terminalRegisterCommand(F("GET"), [](::terminal::CommandContext&& ctx) {
+        if (ctx.argv.size() < 2) {
             terminalError(ctx, F("get <key> [<key>...]"));
             return;
         }
 
         for (auto it = (ctx.argv.cbegin() + 1); it != ctx.argv.cend(); ++it) {
-            const String& key { *it };
+            auto key = ::settings::StringView { *it };
 
-            auto result = settings::internal::get(key);
+            auto result = settings::internal::get(key.toString());
             if (!result) {
-                const auto maybeDefault = settingsQueryDefaults(key);
-                if (maybeDefault.length()) {
-                    ctx.output.printf_P(PSTR("> %s => %s (default)\n"), key.c_str(), maybeDefault.c_str());
+                const auto maybeValue = settingsQuery(key);
+                if (maybeValue.length()) {
+                    ctx.output.printf_P(PSTR("> %s => %s (default)\n"), key.c_str(), maybeValue.c_str());
                 } else {
                     ctx.output.printf_P(PSTR("> %s =>\n"), key.c_str());
                 }
@@ -580,18 +608,18 @@ void _settingsInitCommands() {
         terminalOK(ctx);
     });
 
-    terminalRegisterCommand(F("RELOAD"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("RELOAD"), [](::terminal::CommandContext&& ctx) {
         espurnaReload();
         terminalOK(ctx);
     });
 
-    terminalRegisterCommand(F("FACTORY.RESET"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("FACTORY.RESET"), [](::terminal::CommandContext&& ctx) {
         factoryReset();
         terminalOK(ctx);
     });
 
 #if not SETTINGS_AUTOSAVE
-    terminalRegisterCommand(F("SAVE"), [](const terminal::CommandContext& ctx) {
+    terminalRegisterCommand(F("SAVE"), [](::terminal::CommandContext&& ctx) {
         eepromCommit();
         terminalOK(ctx);
     });
@@ -599,7 +627,6 @@ void _settingsInitCommands() {
 }
 
 } // namespace
-
 #endif
 
 void settingsSetup() {

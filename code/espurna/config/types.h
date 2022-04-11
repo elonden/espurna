@@ -79,27 +79,27 @@
 
 #define RELAY_NONE          0x99
 
-#define RELAY_BOOT_OFF              0
-#define RELAY_BOOT_ON               1
-#define RELAY_BOOT_SAME             2
-#define RELAY_BOOT_TOGGLE           3
-#define RELAY_BOOT_LOCKED_OFF       4
-#define RELAY_BOOT_LOCKED_ON        5
+#define RELAY_BOOT_OFF              RelayBoot::Off
+#define RELAY_BOOT_ON               RelayBoot::On
+#define RELAY_BOOT_SAME             RelayBoot::Same
+#define RELAY_BOOT_TOGGLE           RelayBoot::Toggle
+#define RELAY_BOOT_LOCKED_OFF       RelayBoot::LockedOff
+#define RELAY_BOOT_LOCKED_ON        RelayBoot::LockedOn
 
 #define RELAY_TYPE_NORMAL           RelayType::Normal
 #define RELAY_TYPE_INVERSE          RelayType::Inverse
 #define RELAY_TYPE_LATCHED          RelayType::Latched
 #define RELAY_TYPE_LATCHED_INVERSE  RelayType::LatchedInverse
 
-#define RELAY_SYNC_ANY              0
-#define RELAY_SYNC_NONE_OR_ONE      1
-#define RELAY_SYNC_ONE              2
-#define RELAY_SYNC_SAME             3
-#define RELAY_SYNC_FIRST            4
+#define RELAY_SYNC_ANY              RelaySync::None
+#define RELAY_SYNC_NONE_OR_ONE      RelaySync::ZeroOrOne
+#define RELAY_SYNC_ONE              RelaySync::JustOne
+#define RELAY_SYNC_SAME             RelaySync::All
+#define RELAY_SYNC_FIRST            RelaySync::First
 
-#define RELAY_PULSE_NONE            RelayPulse::None
-#define RELAY_PULSE_OFF             RelayPulse::Off
-#define RELAY_PULSE_ON              RelayPulse::On
+#define RELAY_PULSE_NONE            Mode::None
+#define RELAY_PULSE_OFF             Mode::Off
+#define RELAY_PULSE_ON              Mode::On
 
 #define RELAY_PROVIDER_NONE         RelayProvider::None
 #define RELAY_PROVIDER_DUMMY        RelayProvider::Dummy
@@ -189,14 +189,14 @@
 
 #define LED_MODE_MANUAL             LedMode::Manual         // LED will be managed manually (OFF by default)
 #define LED_MODE_WIFI               LedMode::WiFi           // LED will blink according to the WIFI status
-#define LED_MODE_FOLLOW             LedMode::Follow         // LED will follow state of linked LED#_RELAY relay ID
-#define LED_MODE_FOLLOW_INVERSE     LedMode::FollowInverse  // LED will follow the opposite state of linked LED#_RELAY relay ID
+#define LED_MODE_FOLLOW             LedMode::Relay          // LED will follow state of linked LED#_RELAY relay ID
+#define LED_MODE_FOLLOW_INVERSE     LedMode::RelayInverse   // LED will follow the opposite state of linked LED#_RELAY relay ID
 #define LED_MODE_FINDME             LedMode::FindMe         // LED will be ON if all relays are OFF
 #define LED_MODE_FINDME_WIFI        LedMode::FindMeWiFi     // A mixture between WIFI and FINDME
 #define LED_MODE_ON                 LedMode::On             // LED always ON
 #define LED_MODE_OFF                LedMode::Off            // LED always OFF
-#define LED_MODE_RELAY              LedMode::Relay          // If any relay is ON, LED will be ON, otherwise OFF
-#define LED_MODE_RELAY_WIFI         LedMode::RelayWiFi      // A mixture between WIFI and RELAY, the reverse of MIXED
+#define LED_MODE_RELAY              LedMode::Relays         // If any relay is ON, LED will be ON, otherwise OFF
+#define LED_MODE_RELAY_WIFI         LedMode::RelaysWiFi     // A mixture between WIFI and RELAY, the reverse of MIXED
 
 // -----------------------------------------------------------------------------
 // UI
@@ -223,10 +223,10 @@
 // SCHEDULER
 // -----------------------------------------------------------------------------
 
-#define SCHEDULER_TYPE_NONE         0
-#define SCHEDULER_TYPE_SWITCH       1
-#define SCHEDULER_TYPE_DIM          2
-#define SCHEDULER_TYPE_CURTAIN      3
+#define SCHEDULER_TYPE_NONE         scheduler::Type::None
+#define SCHEDULER_TYPE_RELAY        scheduler::Type::Relay
+#define SCHEDULER_TYPE_CHANNEL      scheduler::Type::Channel
+#define SCHEDULER_TYPE_CURTAIN      scheduler::Type::Curtain
 
 // -----------------------------------------------------------------------------
 // IR
