@@ -8,10 +8,13 @@
 
 #pragma once
 
+#define CSE7766_SYNC_INTERVAL           300     // Safe time between transmissions (ms)
+
+#define CSE7766_V1R                     1.0     // 1mR current resistor
+#define CSE7766_V2R                     1.0     // 1M voltage resistor
+
 #include "BaseSensor.h"
 #include "BaseEmonSensor.h"
-
-#include <SoftwareSerial.h>
 
 class CSE7766Sensor : public BaseEmonSensor {
 
@@ -20,6 +23,10 @@ class CSE7766Sensor : public BaseEmonSensor {
         // ---------------------------------------------------------------------
         // Public
         // ---------------------------------------------------------------------
+
+        using TimeSource = espurna::time::CoreClock;
+
+        static constexpr auto SyncInterval = espurna::duration::Milliseconds { CSE7766_SYNC_INTERVAL };
 
         static constexpr Magnitude Magnitudes[] {
             MAGNITUDE_CURRENT,
@@ -31,34 +38,16 @@ class CSE7766Sensor : public BaseEmonSensor {
             MAGNITUDE_ENERGY
         };
 
-        CSE7766Sensor() {
-            _sensor_id = SENSOR_CSE7766_ID;
-            _count = std::size(Magnitudes);
-            findAndAddEnergy(Magnitudes);
+        CSE7766Sensor() :
+            BaseEmonSensor(Magnitudes)
+        {}
+
+        unsigned char id() const override {
+            return SENSOR_CSE7766_ID;
         }
 
-        // ---------------------------------------------------------------------
-
-        void setRX(unsigned char pin_rx) {
-            if (_pin_rx == pin_rx) return;
-            _pin_rx = pin_rx;
-            _dirty = true;
-        }
-
-        void setInverted(bool inverted) {
-            if (_inverted == inverted) return;
-            _inverted = inverted;
-            _dirty = true;
-        }
-
-        // ---------------------------------------------------------------------
-
-        unsigned char getRX() {
-            return _pin_rx;
-        }
-
-        bool getInverted() {
-            return _inverted;
+        unsigned char count() const override {
+            return std::size(Magnitudes);
         }
 
         // ---------------------------------------------------------------------
@@ -93,31 +82,24 @@ class CSE7766Sensor : public BaseEmonSensor {
         }
 
         // ---------------------------------------------------------------------
+
+        void setPort(Stream* port) {
+            _dirty = true;
+            _serial = port;
+        }
+
+        // ---------------------------------------------------------------------
         // Sensor API
         // ---------------------------------------------------------------------
 
         // Initialization method, must be idempotent
-        void begin() {
+        void begin() override {
 
             resetRatios();
 
             if (!_dirty) return;
 
-            if (_serial) {
-                _serial.reset(nullptr);
-            }
-
-            if (3 == _pin_rx) {
-                Serial.begin(CSE7766_BAUDRATE);
-            } else if (13 == _pin_rx) {
-                Serial.begin(CSE7766_BAUDRATE);
-                Serial.flush();
-                Serial.swap();
-            } else {
-                _serial = std::make_unique<SoftwareSerial>(_pin_rx, -1, _inverted);
-                _serial->enableIntTx(false);
-                _serial->begin(CSE7766_BAUDRATE);
-            }
+            _last_index_reset = TimeSource::now();
 
             _ready = true;
             _dirty = false;
@@ -125,33 +107,22 @@ class CSE7766Sensor : public BaseEmonSensor {
         }
 
         // Descriptive name of the sensor
-        String description() {
-            char buffer[28];
-            if (_serial_is_hardware()) {
-                snprintf(buffer, sizeof(buffer), "CSE7766 @ HwSerial");
-            } else {
-                snprintf(buffer, sizeof(buffer), "CSE7766 @ SwSerial(%u,NULL)", _pin_rx);
-            }
-            return String(buffer);
+        String description() const override {
+            return F("CSE7766");
         }
 
-        // Descriptive name of the slot # index
-        String description(unsigned char index) {
-            return description();
-        };
-
         // Address of the sensor (it could be the GPIO or I2C address)
-        String address(unsigned char index) {
-            return String(_pin_rx);
+        String address(unsigned char) const override {
+            return String(CSE7766_PORT, 10);
         }
 
         // Loop-like method, call it in your main loop
-        void tick() {
+        void tick() override {
             _read();
         }
 
         // Type for slot # index
-        unsigned char type(unsigned char index) {
+        unsigned char type(unsigned char index) const override {
             if (index < std::size(Magnitudes)) {
                 return Magnitudes[index].type;
             }
@@ -160,13 +131,13 @@ class CSE7766Sensor : public BaseEmonSensor {
         }
 
         // Current value for slot # index
-        double value(unsigned char index) {
+        double value(unsigned char index) override {
             if (index == 0) return _current;
             if (index == 1) return _voltage;
             if (index == 2) return _active;
             if (index == 3) return _reactive;
-            if (index == 4) return _voltage * _current;
-            if (index == 5) return ((_voltage > 0) && (_current > 0)) ? 100 * _active / _voltage / _current : 100;
+            if (index == 4) return _apparent;
+            if (index == 5) return _factor;
             if (index == 6) return _energy[0].asDouble();
             return 0;
         }
@@ -184,7 +155,7 @@ class CSE7766Sensor : public BaseEmonSensor {
          * "
          * @return bool
          */
-        bool _checksum() {
+        bool _checksum() const {
             unsigned char checksum = 0;
             for (unsigned char i = 2; i < 23; i++) {
                 checksum += _data[i];
@@ -198,38 +169,36 @@ class CSE7766Sensor : public BaseEmonSensor {
             // 55 5A 02 E9 50 00 03 31 00 3E 9E 00 0D 30 4F 44 F8 00 12 65 F1 81 76 72 (w/ load)
             // F2 5A 02 E9 50 00 03 2B 00 3E 9E 02 D7 7C 4F 44 F8 CF A5 5D E1 B3 2A B4 (w/o load)
 
-            #if SENSOR_DEBUG
-                DEBUG_MSG("[SENSOR] CSE7766: _process: ");
-                for (byte i=0; i<24; i++) DEBUG_MSG("%02X ", _data[i]);
-                DEBUG_MSG("\n");
-            #endif
+#if SENSOR_DEBUG
+            DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: _process: %s\n"), hexEncode(_data).c_str());
+#endif
 
             // Checksum
             if (!_checksum()) {
                 _error = SENSOR_ERROR_CRC;
-                #if SENSOR_DEBUG
-                    DEBUG_MSG("[SENSOR] CSE7766: Checksum error\n");
-                #endif
+#if SENSOR_DEBUG
+                DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Checksum error\n"));
+#endif
                 return;
             }
 
             // Calibration
             if (0xAA == _data[0]) {
                 _error = SENSOR_ERROR_CALIBRATION;
-                #if SENSOR_DEBUG
-                    DEBUG_MSG("[SENSOR] CSE7766: Chip not calibrated\n");
-                #endif
+#if SENSOR_DEBUG
+                DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Chip not calibrated\n"));
+#endif
                 return;
             }
 
             if ((_data[0] & 0xFC) > 0xF0) {
                 _error = SENSOR_ERROR_OTHER;
-                #if SENSOR_DEBUG
-                    if (0xF1 == (_data[0] & 0xF1)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Abnormal coefficient storage area\n"));
-                    if (0xF2 == (_data[0] & 0xF2)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Power cycle exceeded range\n"));
-                    if (0xF4 == (_data[0] & 0xF4)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Current cycle exceeded range\n"));
-                    if (0xF8 == (_data[0] & 0xF8)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Voltage cycle exceeded range\n"));
-                #endif
+#if SENSOR_DEBUG
+                if (0xF1 == (_data[0] & 0xF1)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Abnormal coefficient storage area\n"));
+                if (0xF2 == (_data[0] & 0xF2)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Power cycle exceeded range\n"));
+                if (0xF4 == (_data[0] & 0xF4)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Current cycle exceeded range\n"));
+                if (0xF8 == (_data[0] & 0xF8)) DEBUG_MSG_P(PSTR("[SENSOR] CSE7766: Voltage cycle exceeded range\n"));
+#endif
                 return;
             }
 
@@ -267,11 +236,13 @@ class CSE7766Sensor : public BaseEmonSensor {
             }
 
             // Calculate reactive power
-            _reactive = 0;
-            unsigned int active = _active;
-            unsigned int apparent = _voltage * _current;
-            if (apparent > active) {
-                _reactive = sqrt(apparent * apparent - active * active);
+            _apparent = _voltage * _current;
+            _factor = ((_voltage > 0) && (_current > 0))
+                ? (100 * _active / _voltage / _current)
+                : 100;
+
+            if (_apparent > _active) {
+                _reactive = fs_sqrt(_apparent * _apparent - _active * _active);
             } else {
                 _reactive = 0;
             }
@@ -289,9 +260,8 @@ class CSE7766Sensor : public BaseEmonSensor {
                 difference = cf_pulses - cf_pulses_last;
             }
 
-            _energy[0] += sensor::Ws {
-                static_cast<uint32_t>(difference * (float) _coefP / 1000000.0)
-            };
+            _energy[0] += espurna::sensor::WattSeconds {
+                .value = static_cast<uint32_t>(difference * (float) _coefP / 1000000.0) };
             cf_pulses_last = cf_pulses;
 
         }
@@ -300,95 +270,68 @@ class CSE7766Sensor : public BaseEmonSensor {
 
             _error = SENSOR_ERROR_OK;
 
-            static unsigned char index = 0;
-            static unsigned long last = millis();
-
-            while (_serial_available()) {
+            while (_serial->available() > 0) {
 
                 // A 24 bytes message takes ~55ms to go through at 4800 bps
                 // Reset counter if more than 1000ms have passed since last byte.
-                if (millis() - last > CSE7766_SYNC_INTERVAL) index = 0;
-                last = millis();
+                if (TimeSource::now() - _last_index_reset > SyncInterval) {
+                    _data_index = 0;
+                }
 
-                uint8_t byte = _serial_read();
+                _last_index_reset = TimeSource::now();
+
+                uint8_t byte = _serial->read();
 
                 // first byte must be 0x55 or 0xF?
-                if (0 == index) {
+                if (0 == _data_index) {
                     if ((0x55 != byte) && (byte < 0xF0)) {
                         continue;
                     }
 
                 // second byte must be 0x5A
-                } else if (1 == index) {
+                } else if (1 == _data_index) {
                     if (0x5A != byte) {
-                        index = 0;
+                        _data_index = 0;
                         continue;
                     }
                 }
 
-                _data[index++] = byte;
-                if (index > 23) {
-                    _serial_flush();
+                _data[_data_index++] = byte;
+                if (_data_index > 23) {
                     break;
                 }
 
             }
 
             // Process packet
-            if (24 == index) {
+            if (24 == _data_index) {
                 _process();
-                index = 0;
+                _data_index = 0;
             }
 
         }
 
         // ---------------------------------------------------------------------
 
-        bool _serial_is_hardware() const {
-            return (3 == _pin_rx) || (13 == _pin_rx);
-        }
-
-        bool _serial_available() {
-            if (_serial_is_hardware()) {
-                return Serial.available();
-            } else {
-                return _serial->available();
-            }
-        }
-
-        void _serial_flush() {
-            if (_serial_is_hardware()) {
-                return Serial.flush();
-            } else {
-                return _serial->flush();
-            }
-        }
-
-        uint8_t _serial_read() {
-            if (_serial_is_hardware()) {
-                return Serial.read();
-            } else {
-                return _serial->read();
-            }
-        }
-
-        // ---------------------------------------------------------------------
-
-        int _pin_rx = CSE7766_RX_PIN;
-        bool _inverted = CSE7766_PIN_INVERSE;
-        std::unique_ptr<SoftwareSerial> _serial;
+        Stream* _serial;
 
         double _active = 0;
         double _reactive = 0;
+        double _apparent;
+
         double _voltage = 0;
         double _current = 0;
 
+        double _factor = 0;
+
+        TimeSource::time_point _last_index_reset;
         unsigned char _data[24] {0};
+        size_t _data_index = 0;
 
 };
 
 #if __cplusplus < 201703L
-constexpr BaseEmonSensor::Magnitude CSE7766Sensor::Magnitudes[];
+constexpr BaseSensor::Magnitude CSE7766Sensor::Magnitudes[];
 #endif
 
 #endif // SENSOR_SUPPORT && CSE7766_SUPPORT

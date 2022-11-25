@@ -14,7 +14,6 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 #include "telnet.h"
 #include "web.h"
 #include "ntp.h"
-#include "utils.h"
 #include "ws.h"
 
 #include <limits>
@@ -35,11 +34,11 @@ namespace settings {
 namespace options {
 namespace {
 
-using ::settings::options::Enumeration;
+using espurna::settings::options::Enumeration;
 
-alignas(4) static constexpr char Disabled[] PROGMEM = "off";
-alignas(4) static constexpr char Enabled[] PROGMEM = "on";
-alignas(4) static constexpr char SkipBoot[] PROGMEM = "skip-boot";
+PROGMEM_STRING(Disabled, "off");
+PROGMEM_STRING(Enabled, "on");
+PROGMEM_STRING(SkipBoot, "skip-boot");
 
 static constexpr Enumeration<DebugLogMode> DebugLogModeOptions[] PROGMEM {
     {DebugLogMode::Disabled, Disabled},
@@ -53,19 +52,18 @@ static constexpr Enumeration<DebugLogMode> DebugLogModeOptions[] PROGMEM {
 namespace keys {
 namespace {
 
-alignas(4) static constexpr char SdkDebug[] PROGMEM = "dbgSDK";
-alignas(4) static constexpr char Mode[] PROGMEM = "dbgLogMode";
-alignas(4) static constexpr char Buffer[] PROGMEM = "dbgLogBuf";
-alignas(4) static constexpr char BufferSize[] PROGMEM = "dbgLogBufSize";
+PROGMEM_STRING(SdkDebug, "dbgSDK");
+PROGMEM_STRING(Mode, "dbgLogMode");
+PROGMEM_STRING(Buffer, "dbgLogBuf");
+PROGMEM_STRING(BufferSize, "dbgLogBufSize");
 
-alignas(4) static constexpr char HeartbeatMode[] PROGMEM = "dbgHbMode";
-alignas(4) static constexpr char HeartbeatInterval[] PROGMEM = "dbgHbIntvl";
+PROGMEM_STRING(HeartbeatMode, "dbgHbMode");
+PROGMEM_STRING(HeartbeatInterval, "dbgHbIntvl");
 
 } // namespace
 } // namespace keys
 } // namespace settings
 } // namespace debug
-} // namespace espurna
 
 namespace settings {
 namespace internal {
@@ -87,7 +85,6 @@ DebugLogMode convert(const String& value) {
 } // namespace internal
 } // namespace settings
 
-namespace espurna {
 namespace debug {
 namespace {
 
@@ -143,6 +140,7 @@ constexpr size_t bufferSize() {
 namespace settings {
 namespace {
 
+[[gnu::unused]]
 bool sdkDebug() {
     return getSetting(keys::SdkDebug, build::sdkDebug());
 }
@@ -194,7 +192,7 @@ void enable() {
 
 void delayedEnable() {
     disable();
-    schedule_function(enable);
+    ::espurnaRegisterOnce(enable);
 }
 
 void send(const char* message, size_t len, Timestamp);
@@ -434,11 +432,58 @@ void dump(Print& out) {
 #if DEBUG_SERIAL_SUPPORT
 namespace serial {
 
-void output(Print& out, const char (&prefix)[10], const char* message, size_t len) {
+using Output = void(*)(const char (&)[10], const char*, size_t);
+
+void null_output(const char (&)[10], const char*, size_t) {
+}
+
+namespace internal {
+
+Print* port { nullptr };
+Output output { null_output };
+
+} // namespace
+
+void output(const char (&prefix)[10], const char* message, size_t len) {
+    internal::output(prefix, message, len);
+}
+
+void port_output(const char (&prefix)[10], const char* message, size_t len) {
     if (prefix[0] != '\0') {
-        out.write(&prefix[0], sizeof(prefix) - 1);
+        internal::port->write(&prefix[0], sizeof(prefix) - 1);
     }
-    out.write(message, len);
+    internal::port->write(message, len);
+}
+
+void setup() {
+    // HardwareSerial::begin() will automatically enable this when
+    // `#if defined(DEBUG_ESP_PORT) && !defined(NDEBUG)`
+    // Do not interfere when that is the case
+    const auto port = uartPort(DEBUG_SERIAL_PORT - 1);
+    if (!port || !port->tx) {
+        return;
+    }
+
+    // TODO: notice that SDK accepts anything as putc / printf,
+    // but we don't really have a good reason to wrire both
+    // this debug output and the one from SDK
+    // (and most of the time this is need to grab boot info from a
+    // physically connected device)
+    if (!build::coreDebug() && settings::sdkDebug()) {
+        switch (port->type) {
+        case driver::uart::Type::Uart0:
+            uart_set_debug(0);
+            break;
+        case driver::uart::Type::Uart1:
+            uart_set_debug(1);
+            break;
+        default:
+            break;
+        }
+    }
+
+    internal::port = port->stream;
+    internal::output = port_output;
 }
 
 } // namespace serial
@@ -478,7 +523,7 @@ void configure() {
     snprintf_P(
         internal::header, sizeof(internal::header),
         PSTR("<%u>1 - %.31s ESPurna - - - "), DEBUG_UDP_FAC_PRI,
-        getHostname().c_str());
+        systemHostname().c_str());
 }
 
 bool output(const char* message, size_t len) {
@@ -514,7 +559,7 @@ void send(const char* message, size_t len, Timestamp timestamp) {
     bool pause { false };
 
 #if DEBUG_SERIAL_SUPPORT
-    serial::output(DEBUG_PORT, prefix, message, len);
+    serial::output(prefix, message, len);
 #endif
 
 #if DEBUG_UDP_SUPPORT
@@ -544,7 +589,7 @@ void send(const char* message, size_t len, Timestamp timestamp) {
 namespace web {
 
 void onVisible(JsonObject& root) {
-    wsPayloadModule(root, "dbg");
+    wsPayloadModule(root, PSTR("dbg"));
 }
 
 } // namespace web
@@ -554,7 +599,7 @@ void onVisible(JsonObject& root) {
 
 bool status(espurna::heartbeat::Mask mask) {
     if (mask & espurna::heartbeat::Report::Uptime) {
-        debugSend(PSTR("[MAIN] Uptime: %s\n"), getUptime().c_str());
+        debugSend(PSTR("[MAIN] Uptime: %s\n"), prettyDuration(systemUptime()).c_str());
     }
 
     if (mask & espurna::heartbeat::Report::Freeheap) {
@@ -577,28 +622,6 @@ bool status(espurna::heartbeat::Mask mask) {
 }
 
 void configure() {
-    // HardwareSerial::begin() will automatically enable this when
-    // `#if defined(DEBUG_ESP_PORT) && !defined(NDEBUG)`
-    // Do not interfere when that is the case
-    if (!build::coreDebug()) {
-        DEBUG_PORT.setDebugOutput(settings::sdkDebug());
-    }
-
-    // Make sure other modules are aware of used GPIOs
-    // TODO: external port config, without using Arduino globals, will fix this diagnostics mess...
-#if DEBUG_SERIAL_SUPPORT
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored  "-Wpragmas"
-#pragma GCC diagnostic ignored  "-Wtautological-compare"
-    if (&(DEBUG_PORT) == &Serial) {
-        gpioLock(1);
-        gpioLock(3);
-    } else if (&(DEBUG_PORT) == &Serial1) {
-        gpioLock(2);
-    }
-#pragma GCC diagnostic pop
-#endif
-
 #if DEBUG_LOG_BUFFER_SUPPORT
     if (settings::buffer()) {
         debug::buffer::enable(settings::bufferSize());
@@ -628,8 +651,41 @@ void onBoot() {
         break;
     }
 
+#if DEBUG_SERIAL_SUPPORT
+    espurna::debug::serial::setup();
+#endif
+
     configure();
 }
+
+#if TERMINAL_SUPPORT
+namespace terminal {
+
+PROGMEM_STRING(DebugBuffer, "DEBUG.BUFFER");
+
+void debug_buffer(::terminal::CommandContext&& ctx) {
+    debug::buffer::disable();
+    if (!debug::buffer::size()) {
+        terminalError(ctx, F("buffer is empty\n"));
+        return;
+    }
+
+    ctx.output.printf_P(PSTR("buffer size: %u / %u bytes\n"),
+        debug::buffer::size(), debug::buffer::capacity());
+    debug::buffer::dump(ctx.output);
+    terminalOK(ctx);
+}
+
+static constexpr ::terminal::Command commands[] PROGMEM {
+    {DebugBuffer, debug_buffer},
+};
+
+void setup() {
+    espurna::terminal::add(commands);
+}
+
+} // namespace terminal
+#endif
 
 } // namespace
 } // namespace debug
@@ -665,32 +721,39 @@ void debugWebSetup() {
 }
 #endif
 
-void debugSetup() {
+void debugShowBanner() {
 #if DEBUG_SERIAL_SUPPORT
-    DEBUG_PORT.begin(SERIAL_BAUDRATE);
-#endif
+    if (espurna::debug::buffer::enabled()) {
+        return;
+    }
 
+    const auto app = buildApp();
+    DEBUG_MSG_P(PSTR("[MAIN] %s %s built %s\n"),
+            app.name.c_str(), app.version.c_str(),
+            app.build_time.c_str());
+
+    DEBUG_MSG_P(PSTR("[MAIN] %s\n"), app.author.c_str());
+    DEBUG_MSG_P(PSTR("[MAIN] %s\n"), app.website.c_str());
+
+    DEBUG_MSG_P(PSTR("[MAIN] CPU chip ID: %s frequency: %hhuMHz\n"),
+            systemChipId().c_str(), system_get_cpu_freq());
+
+    const auto device = systemDevice();
+    DEBUG_MSG_P(PSTR("[MAIN] Device: %s\n"),
+            device.c_str());
+#endif
+}
+
+void debugSetup() {
 #if DEBUG_UDP_SUPPORT
     if (espurna::debug::syslog::build::enabled()) {
         espurna::debug::syslog::configure();
         espurnaRegisterReload(espurna::debug::syslog::configure);
     }
 #endif
-
 #if DEBUG_LOG_BUFFER_SUPPORT
 #if TERMINAL_SUPPORT
-    terminalRegisterCommand(F("DEBUG.BUFFER"), [](::terminal::CommandContext&& ctx) {
-        espurna::debug::buffer::disable();
-        if (!espurna::debug::buffer::size()) {
-            terminalError(ctx, F("buffer is empty\n"));
-            return;
-        }
-
-        ctx.output.printf_P(PSTR("buffer size: %u / %u bytes\n"),
-            espurna::debug::buffer::size(), espurna::debug::buffer::capacity());
-        espurna::debug::buffer::dump(ctx.output);
-        terminalOK(ctx);
-    });
+    espurna::debug::terminal::setup();
 #endif
 #endif
 }

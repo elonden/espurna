@@ -57,8 +57,8 @@ namespace settings {
 namespace keys {
 namespace {
 
-alignas(4) static constexpr char Time[] PROGMEM = "relayFloodTime";
-alignas(4) static constexpr char Changes[] PROGMEM = "relayFloodChanges";
+PROGMEM_STRING(Time, "relayFloodTime");
+PROGMEM_STRING(Changes, "relayFloodChanges");
 
 } // namespace
 } // namespace keys
@@ -217,41 +217,33 @@ constexpr RelayMqttTopicMode mqttTopicMode(size_t index) {
     );
 }
 
-const __FlashStringHelper* payloadOn() {
-    return F(RELAY_MQTT_ON);
-}
+PROGMEM_STRING(PayloadOn, RELAY_MQTT_ON);
+PROGMEM_STRING(PayloadOff, RELAY_MQTT_OFF);
+PROGMEM_STRING(PayloadToggle, RELAY_MQTT_TOGGLE);
 
-const __FlashStringHelper* payloadOff() {
-    return F(RELAY_MQTT_OFF);
-}
-
-const __FlashStringHelper* payloadToggle() {
-    return F(RELAY_MQTT_TOGGLE);
-}
-
-constexpr const char* mqttTopicSub(size_t index) {
+const StringView mqttTopicSub(size_t index) {
     return (
-        (index == 0) ? (RELAY1_MQTT_TOPIC_SUB) :
-        (index == 1) ? (RELAY2_MQTT_TOPIC_SUB) :
-        (index == 2) ? (RELAY3_MQTT_TOPIC_SUB) :
-        (index == 3) ? (RELAY4_MQTT_TOPIC_SUB) :
-        (index == 4) ? (RELAY5_MQTT_TOPIC_SUB) :
-        (index == 5) ? (RELAY6_MQTT_TOPIC_SUB) :
-        (index == 6) ? (RELAY7_MQTT_TOPIC_SUB) :
-        (index == 7) ? (RELAY8_MQTT_TOPIC_SUB) : ""
+        (index == 0) ? StringView(PSTR(RELAY1_MQTT_TOPIC_SUB)) :
+        (index == 1) ? StringView(PSTR(RELAY2_MQTT_TOPIC_SUB)) :
+        (index == 2) ? StringView(PSTR(RELAY3_MQTT_TOPIC_SUB)) :
+        (index == 3) ? StringView(PSTR(RELAY4_MQTT_TOPIC_SUB)) :
+        (index == 4) ? StringView(PSTR(RELAY5_MQTT_TOPIC_SUB)) :
+        (index == 5) ? StringView(PSTR(RELAY6_MQTT_TOPIC_SUB)) :
+        (index == 6) ? StringView(PSTR(RELAY7_MQTT_TOPIC_SUB)) :
+        (index == 7) ? StringView(PSTR(RELAY8_MQTT_TOPIC_SUB)) : ""
     );
 }
 
-constexpr const char* mqttTopicPub(size_t index) {
+const StringView mqttTopicPub(size_t index) {
     return (
-        (index == 0) ? (RELAY1_MQTT_TOPIC_PUB) :
-        (index == 1) ? (RELAY2_MQTT_TOPIC_PUB) :
-        (index == 2) ? (RELAY3_MQTT_TOPIC_PUB) :
-        (index == 3) ? (RELAY4_MQTT_TOPIC_PUB) :
-        (index == 4) ? (RELAY5_MQTT_TOPIC_PUB) :
-        (index == 5) ? (RELAY6_MQTT_TOPIC_PUB) :
-        (index == 6) ? (RELAY7_MQTT_TOPIC_PUB) :
-        (index == 7) ? (RELAY8_MQTT_TOPIC_PUB) : ""
+        (index == 0) ? StringView(PSTR(RELAY1_MQTT_TOPIC_PUB)) :
+        (index == 1) ? StringView(PSTR(RELAY2_MQTT_TOPIC_PUB)) :
+        (index == 2) ? StringView(PSTR(RELAY3_MQTT_TOPIC_PUB)) :
+        (index == 3) ? StringView(PSTR(RELAY4_MQTT_TOPIC_PUB)) :
+        (index == 4) ? StringView(PSTR(RELAY5_MQTT_TOPIC_PUB)) :
+        (index == 5) ? StringView(PSTR(RELAY6_MQTT_TOPIC_PUB)) :
+        (index == 6) ? StringView(PSTR(RELAY7_MQTT_TOPIC_PUB)) :
+        (index == 7) ? StringView(PSTR(RELAY8_MQTT_TOPIC_PUB)) : ""
     );
 }
 
@@ -336,8 +328,8 @@ namespace settings {
 namespace keys {
 namespace {
 
-alignas(4) static constexpr char Time[] PROGMEM = "relayTime";
-alignas(4) static constexpr char Mode[] PROGMEM = "relayPulse";
+PROGMEM_STRING(Time, "relayTime");
+PROGMEM_STRING(Mode, "relayPulse");
 
 } // namespace
 } // namespace keys
@@ -345,9 +337,9 @@ alignas(4) static constexpr char Mode[] PROGMEM = "relayPulse";
 namespace {
 
 Result time(size_t index) {
-    auto time = ::settings::internal::get(SettingsKey{keys::Time, index}.value());
+    const auto time = espurna::settings::get(espurna::settings::Key{keys::Time, index}.value());
     if (!time) {
-        return Result { std::chrono::duration_cast<Duration>(build::time(index)) };
+        return Result(std::chrono::duration_cast<Duration>(build::time(index)));
     }
 
     return parse(time.ref());
@@ -363,15 +355,7 @@ Mode mode(size_t index) {
 namespace {
 
 struct Timer {
-    // limit is per https://www.espressif.com/sites/default/files/documentation/2c-esp8266_non_os_sdk_api_reference_en.pdf
-    // > 3.1.1 os_timer_arm
-    // > with `system_timer_reinit()`, the timer value allowed ranges from 100 to 0x0x689D0.
-    // > otherwise, the timer value allowed ranges from 5 to 0x68D7A3.
-
-    static constexpr auto DurationMin = Duration { 5 };
-    static constexpr auto DurationMax = Duration { espurna::duration::Hours { 1 } };
-
-    using TimeSource = espurna::time::CoreClock;
+    using Duration = timer::SystemTimer::Duration;
 
     Timer() = delete;
     Timer(const Timer&) = delete;
@@ -384,14 +368,14 @@ struct Timer {
     {}
 
     ~Timer() {
-        stop();
+        _timer.stop();
     }
 
     Timer& operator=(const Timer&) = delete;
     Timer& operator=(Timer&&) = delete;
 
     explicit operator bool() const {
-        return _armed;
+        return static_cast<bool>(_timer);
     }
 
     bool operator==(const Timer& other) const {
@@ -420,54 +404,28 @@ struct Timer {
     }
 
     void stop() {
-        if (_armed) {
-            os_timer_disarm(&_timer);
-            _timer = os_timer_t{};
-            _armed = false;
-        }
+        _timer.stop();
     }
 
     void start() {
-        stop();
-
-        auto delay = std::clamp(_duration, DurationMin, DurationMax);
-        os_timer_setfn(&_timer, timerCallback, this);
-        os_timer_arm(&_timer, delay.count(), 0);
-
-        _start = TimeSource::now();
-        _armed = true;
+        const auto id = _id;
+        const auto status = _status;
+        _timer.once(
+            (_duration.count() > 0)
+                ? _duration
+                : timer::SystemTimer::DurationMin,
+            [id, status]() {
+                relayStatus(id, status);
+            });
     }
 
 private:
-    void check() {
-        auto elapsed = TimeSource::now() - _start;
-        if (elapsed <= _duration) {
-            auto left = std::clamp(_duration - elapsed, DurationMin, DurationMax);
-            if (left != DurationMin) {
-                os_timer_arm(&_timer, left.count(), 0);
-                return;
-            }
-        }
-
-        relayStatus(_id, _status);
-        stop();
-    }
-
-    static void timerCallback(void* arg) {
-        reinterpret_cast<Timer*>(arg)->check();
-    }
-
     Duration _duration;
     size_t _id;
     bool _status;
 
-    TimeSource::time_point _start;
-    bool _armed { false };
-    os_timer_t _timer {};
+    timer::SystemTimer _timer;
 };
-
-constexpr Duration Timer::DurationMin;
-constexpr Duration Timer::DurationMax;
 
 namespace internal {
 
@@ -557,11 +515,11 @@ namespace settings {
 namespace options {
 namespace {
 
-using ::settings::options::Enumeration;
+using espurna::settings::options::Enumeration;
 
-alignas(4) static constexpr char TristateNone[] PROGMEM = "none";
-alignas(4) static constexpr char TristateOff[] PROGMEM = "off";
-alignas(4) static constexpr char TristateOn[] PROGMEM = "on";
+PROGMEM_STRING(TristateNone, "none");
+PROGMEM_STRING(TristateOff, "off");
+PROGMEM_STRING(TristateOn, "on");
 
 template <typename T>
 struct RelayTristateHelper {
@@ -572,21 +530,21 @@ struct RelayTristateHelper {
     };
 
     static T convert(const String& value) {
-        return ::settings::internal::convert(Options, value, T::None);
+        return espurna::settings::internal::convert(Options, value, T::None);
     }
 
     static String serialize(T value) {
-        return ::settings::internal::serialize(Options, value);
+        return espurna::settings::internal::serialize(Options, value);
     }
 };
 
 template <typename T>
 constexpr std::array<Enumeration<T>, 3> RelayTristateHelper<T>::Options;
 
-alignas(4) static constexpr char PayloadStatusOff[] PROGMEM = "off";
-alignas(4) static constexpr char PayloadStatusOn[] PROGMEM = "on";
-alignas(4) static constexpr char PayloadStatusToggle[] PROGMEM = "toggle";
-alignas(4) static constexpr char PayloadStatusUnknown[] PROGMEM = "unknown";
+PROGMEM_STRING(PayloadStatusOff, "off");
+PROGMEM_STRING(PayloadStatusOn, "on");
+PROGMEM_STRING(PayloadStatusToggle, "toggle");
+PROGMEM_STRING(PayloadStatusUnknown, "unknown");
 
 static constexpr std::array<Enumeration<PayloadStatus>, 4> PayloadStatusOptions PROGMEM {
     {{PayloadStatus::Off, PayloadStatusOff},
@@ -595,20 +553,20 @@ static constexpr std::array<Enumeration<PayloadStatus>, 4> PayloadStatusOptions 
      {PayloadStatus::Unknown, PayloadStatusUnknown}}
 };
 
-alignas(4) static constexpr char Normal[] PROGMEM = "normal";
-alignas(4) static constexpr char Inverse[] PROGMEM = "inverse";
+PROGMEM_STRING(Normal, "normal");
+PROGMEM_STRING(Inverse, "inverse");
 
 static constexpr std::array<Enumeration<RelayMqttTopicMode>, 2> RelayMqttTopicModeOptions PROGMEM {
     {{RelayMqttTopicMode::Normal, Normal},
      {RelayMqttTopicMode::Inverse, Inverse}}
 };
 
-alignas(4) static constexpr char RelayBootOff[] PROGMEM = "off";
-alignas(4) static constexpr char RelayBootOn[] PROGMEM = "on";
-alignas(4) static constexpr char RelayBootSame[] PROGMEM = "same";
-alignas(4) static constexpr char RelayBootToggle[] PROGMEM = "toggle";
-alignas(4) static constexpr char RelayBootLockedOff[] PROGMEM = "locked-off";
-alignas(4) static constexpr char RelayBootLockedOn[] PROGMEM = "locked-on";
+PROGMEM_STRING(RelayBootOff, "off");
+PROGMEM_STRING(RelayBootOn, "on");
+PROGMEM_STRING(RelayBootSame, "same");
+PROGMEM_STRING(RelayBootToggle, "toggle");
+PROGMEM_STRING(RelayBootLockedOff, "locked-off");
+PROGMEM_STRING(RelayBootLockedOn, "locked-on");
 
 static constexpr std::array<Enumeration<RelayBoot>, 6> RelayBootOptions PROGMEM {
     {{RelayBoot::Off, RelayBootOff},
@@ -619,11 +577,11 @@ static constexpr std::array<Enumeration<RelayBoot>, 6> RelayBootOptions PROGMEM 
      {RelayBoot::LockedOn, RelayBootLockedOn}}
 };
 
-alignas(4) static constexpr char RelayProviderNone[] PROGMEM = "none";
-alignas(4) static constexpr char RelayProviderDummy[] PROGMEM = "dummy";
-alignas(4) static constexpr char RelayProviderGpio[] PROGMEM = "gpio";
-alignas(4) static constexpr char RelayProviderDual[] PROGMEM = "dual";
-alignas(4) static constexpr char RelayProviderStm[] PROGMEM = "stm";
+PROGMEM_STRING(RelayProviderNone, "none");
+PROGMEM_STRING(RelayProviderDummy, "dummy");
+PROGMEM_STRING(RelayProviderGpio, "gpio");
+PROGMEM_STRING(RelayProviderDual, "dual");
+PROGMEM_STRING(RelayProviderStm, "stm");
 
 static constexpr std::array<Enumeration<RelayProvider>, 5> RelayProviderOptions PROGMEM {
     {{RelayProvider::None, RelayProviderNone},
@@ -633,10 +591,10 @@ static constexpr std::array<Enumeration<RelayProvider>, 5> RelayProviderOptions 
      {RelayProvider::Stm, RelayProviderStm}}
 };
 
-alignas(4) constexpr static char RelayTypeNormal[] PROGMEM = "normal";
-alignas(4) constexpr static char RelayTypeInverse[] PROGMEM = "inverse";
-alignas(4) constexpr static char RelayTypeLatched[] PROGMEM = "latched";
-alignas(4) constexpr static char RelayTypeLatchedInverse[] PROGMEM = "latched-inverse";
+PROGMEM_STRING(RelayTypeNormal, "normal");
+PROGMEM_STRING(RelayTypeInverse, "inverse");
+PROGMEM_STRING(RelayTypeLatched, "latched");
+PROGMEM_STRING(RelayTypeLatchedInverse, "latched-inverse");
 
 static constexpr std::array<Enumeration<RelayType>, 4> RelayTypeOptions PROGMEM {
     {{RelayType::Normal, RelayTypeNormal},
@@ -645,11 +603,11 @@ static constexpr std::array<Enumeration<RelayType>, 4> RelayTypeOptions PROGMEM 
      {RelayType::LatchedInverse, RelayTypeLatchedInverse}}
 };
 
-alignas(4) constexpr static char None[] PROGMEM = "none";
-alignas(4) constexpr static char ZeroOrOne[] PROGMEM = "zero-or-one";
-alignas(4) constexpr static char JustOne[] PROGMEM = "just-one";
-alignas(4) constexpr static char All[] PROGMEM = "all";
-alignas(4) constexpr static char First[] PROGMEM = "first";
+PROGMEM_STRING(None, "none");
+PROGMEM_STRING(ZeroOrOne, "zero-or-one");
+PROGMEM_STRING(JustOne, "just-one");
+PROGMEM_STRING(All, "all");
+PROGMEM_STRING(First, "first");
 
 static constexpr std::array<Enumeration<RelaySync>, 5> RelaySyncOptions PROGMEM {
     {{RelaySync::None, None},
@@ -711,17 +669,18 @@ private:
     RelayMask _mask {};
 };
 
+namespace espurna {
 namespace settings {
 namespace internal {
 namespace {
 
-using espurna::relay::settings::options::RelayTristateHelper;
-using espurna::relay::settings::options::PayloadStatusOptions;
-using espurna::relay::settings::options::RelayMqttTopicModeOptions;
-using espurna::relay::settings::options::RelayBootOptions;
-using espurna::relay::settings::options::RelayProviderOptions;
-using espurna::relay::settings::options::RelayTypeOptions;
-using espurna::relay::settings::options::RelaySyncOptions;
+using relay::settings::options::RelayTristateHelper;
+using relay::settings::options::PayloadStatusOptions;
+using relay::settings::options::RelayMqttTopicModeOptions;
+using relay::settings::options::RelayBootOptions;
+using relay::settings::options::RelayProviderOptions;
+using relay::settings::options::RelayTypeOptions;
+using relay::settings::options::RelaySyncOptions;
 
 } // namespace
 
@@ -805,37 +764,36 @@ String serialize(RelaySync value) {
 } // namespace internal
 } // namespace settings
 
-namespace espurna {
 namespace relay {
 namespace settings {
 namespace keys {
 namespace {
 
-alignas(4) static constexpr char Name[] PROGMEM = "relayName";
-alignas(4) static constexpr char Provider[] PROGMEM = "relayProv";
-alignas(4) static constexpr char Type[] PROGMEM = "relayType";
-alignas(4) static constexpr char GpioType[] PROGMEM = "relayGpioType";
-alignas(4) static constexpr char Gpio[] PROGMEM = "relayGpio";
-alignas(4) static constexpr char ResetGpio[] PROGMEM = "relayResetGpio";
-alignas(4) static constexpr char Boot[] PROGMEM = "relayBoot";
-alignas(4) static constexpr char DelayOn[] PROGMEM = "relayDelayOn";
-alignas(4) static constexpr char DelayOff[] PROGMEM = "relayDelayOff";
+PROGMEM_STRING(Name, "relayName");
+PROGMEM_STRING(Provider, "relayProv");
+PROGMEM_STRING(Type, "relayType");
+PROGMEM_STRING(GpioType, "relayGpioType");
+PROGMEM_STRING(Gpio, "relayGpio");
+PROGMEM_STRING(ResetGpio, "relayResetGpio");
+PROGMEM_STRING(Boot, "relayBoot");
+PROGMEM_STRING(DelayOn, "relayDelayOn");
+PROGMEM_STRING(DelayOff, "relayDelayOff");
 
 #if MQTT_SUPPORT
-alignas(4) static constexpr char TopicPub[] PROGMEM = "relayTopicPub";
-alignas(4) static constexpr char TopicSub[] PROGMEM = "relayTopicSub";
-alignas(4) static constexpr char TopicMode[] PROGMEM = "relayTopicMode";
-alignas(4) static constexpr char MqttDisconnection[] PROGMEM = "relayMqttDisc";
+PROGMEM_STRING(TopicPub, "relayTopicPub");
+PROGMEM_STRING(TopicSub, "relayTopicSub");
+PROGMEM_STRING(TopicMode, "relayTopicMode");
+PROGMEM_STRING(MqttDisconnection, "relayMqttDisc");
 #endif
 
-alignas(4) static constexpr char Dummy[] PROGMEM = "relayDummy";
-alignas(4) static constexpr char BootMask[] PROGMEM = "relayBootMask";
-alignas(4) static constexpr char Interlock[] PROGMEM = "relayIlkDelay";
-alignas(4) static constexpr char Sync[] PROGMEM = "relaySync";
+PROGMEM_STRING(Dummy, "relayDummy");
+PROGMEM_STRING(BootMask, "relayBootMask");
+PROGMEM_STRING(Interlock, "relayIlkDelay");
+PROGMEM_STRING(Sync, "relaySync");
 
-alignas(4) static constexpr char PayloadOn[] PROGMEM = "relayPayloadOn";
-alignas(4) static constexpr char PayloadOff[] PROGMEM = "relayPayloadOff";
-alignas(4) static constexpr char PayloadToggle[] PROGMEM = "relayPayloadOff";
+PROGMEM_STRING(PayloadOn, "relayPayloadOn");
+PROGMEM_STRING(PayloadOff, "relayPayloadOff");
+PROGMEM_STRING(PayloadToggle, "relayPayloadOff");
 
 } // namespace
 } // namespace keys
@@ -906,17 +864,17 @@ RelaySync syncMode() {
 
 [[gnu::unused]]
 String payloadOn() {
-    return getSetting(keys::PayloadOn, build::payloadOn());
+    return getSetting(keys::PayloadOn, StringView(build::PayloadOn));
 }
 
 [[gnu::unused]]
 String payloadOff() {
-    return getSetting(keys::PayloadOff, build::payloadOff());
+    return getSetting(keys::PayloadOff, StringView(build::PayloadOff));
 }
 
 [[gnu::unused]]
 String payloadToggle() {
-    return getSetting(keys::PayloadToggle, build::payloadToggle());
+    return getSetting(keys::PayloadToggle, StringView(build::PayloadToggle));
 }
 
 #if MQTT_SUPPORT
@@ -944,12 +902,12 @@ namespace {
 
 #define EXACT_VALUE(NAME, FUNC)\
 String NAME () {\
-    return ::settings::internal::serialize(FUNC());\
+    return espurna::settings::internal::serialize(FUNC());\
 }
 
 #define ID_VALUE(NAME, FUNC)\
 String NAME (size_t id) {\
-    return ::settings::internal::serialize(FUNC(id));\
+    return espurna::settings::internal::serialize(FUNC(id));\
 }
 
 namespace internal {
@@ -972,7 +930,7 @@ ID_VALUE(pulseMode, pulse::settings::mode)
 String pulseTime(size_t index) {
     const auto result = pulse::settings::time(index);
     const auto as_seconds = std::chrono::duration_cast<pulse::Seconds>(result.duration());
-    return ::settings::internal::serialize(as_seconds.count());
+    return espurna::settings::internal::serialize(as_seconds.count());
 }
 
 #if MQTT_SUPPORT
@@ -985,14 +943,14 @@ ID_VALUE(mqttTopicMode, settings::mqttTopicMode)
 
 } // namespace internal
 
-static constexpr ::settings::query::Setting Settings[] PROGMEM {
+static constexpr espurna::settings::query::Setting Settings[] PROGMEM {
     {keys::Dummy, internal::dummyCount},
     {keys::BootMask, internal::bootMask},
     {keys::Interlock, internal::interlockDelay},
     {keys::Sync, internal::syncMode}
 };
 
-static constexpr ::settings::query::IndexedSetting IndexedSettings[] PROGMEM {
+static constexpr espurna::settings::query::IndexedSetting IndexedSettings[] PROGMEM {
     {keys::Name, settings::name},
     {keys::Provider, internal::provider},
     {keys::Type, internal::type},
@@ -1087,7 +1045,8 @@ public:
 namespace {
 
 struct RelaySaveTimer {
-    using Duration = espurna::duration::Milliseconds;
+    using Timer = espurna::timer::SystemTimer;
+    using Duration = Timer::Duration;
 
     RelaySaveTimer() = default;
 
@@ -1098,33 +1057,28 @@ struct RelaySaveTimer {
     RelaySaveTimer& operator=(RelaySaveTimer&&) = delete;
 
     ~RelaySaveTimer() {
-        stop();
+        _timer.stop();
     }
 
     void schedule(Duration duration) {
-        stop();
-
-        os_timer_setfn(&_timer, timerCallback, this);
-        os_timer_arm(&_timer, duration.count(), 0);
-        _armed = true;
+        _timer.once(
+            duration,
+            [&]() {
+                _ready = true;
+            });
     }
 
     void stop() {
-        if (_armed) {
-            os_timer_disarm(&_timer);
-            _timer = os_timer_t{};
-            _done = false;
-            _armed = false;
-            _persist = false;
-        }
+        _timer.stop();
+        _persist = false;
     }
 
     template <typename T>
     void process(T&& callback) {
-        if (_done) {
+        if (_ready) {
             callback(_persist);
             _persist = false;
-            _done = false;
+            _ready = false;
         }
     }
 
@@ -1135,23 +1089,14 @@ struct RelaySaveTimer {
     }
 
 private:
-    void done() {
-        _done = true;
-        _armed = false;
-    }
-
-    static void timerCallback(void* arg) {
-        reinterpret_cast<RelaySaveTimer*>(arg)->done();
-    }
-
     bool _persist { false };
-    bool _done { false };
-    bool _armed { false };
-    os_timer_t _timer;
+    bool _ready { false };
+    Timer _timer;
 };
 
 struct RelaySyncTimer {
-    using Duration = espurna::duration::Milliseconds;
+    using Timer = espurna::timer::SystemTimer;
+    using Duration = Timer::Duration;
     using Callback = void(*)();
 
     RelaySyncTimer() = default;
@@ -1167,43 +1112,30 @@ struct RelaySyncTimer {
     }
 
     void schedule(Duration duration, Callback callback) {
-        stop();
-
-        os_timer_setfn(&_timer, timerCallback, this);
-        os_timer_arm(&_timer, duration.count(), 0);
+        _timer.once(
+            duration,
+            [&]() {
+                _ready = true;
+            });
         _callback = callback;
-        _armed = true;
     }
 
     void stop() {
-        if (_armed) {
-            os_timer_disarm(&_timer);
-            _timer = os_timer_t{};
-            _done = false;
-            _armed = false;
-        }
+        _timer.stop();
+        _ready = false;
     }
 
     void process() {
-        if (_done) {
+        if (_ready) {
             _callback();
-            _done = false;
+            _ready = false;
         }
     }
 
 private:
-    void done() {
-        _done = true;
-    }
-
-    static void timerCallback(void* arg) {
-        reinterpret_cast<RelaySyncTimer*>(arg)->done();
-    }
-
     Callback _callback { nullptr };
-    bool _done { false };
-    bool _armed { false };
-    os_timer_t _timer;
+    bool _ready { false };
+    Timer _timer;
 };
 
 using Relays = std::vector<Relay>;
@@ -1367,23 +1299,22 @@ public:
     }
 
     bool setup() override {
-        static bool once { false };
-        if (!once) {
-            once = true;
-            Serial.begin(SERIAL_BAUDRATE);
-            espurnaRegisterLoop(loop);
-        }
-        return true;
+        static bool once = ([]() {
+            const auto port = uartPort(RELAY_PROVIDER_DUAL_PORT - 1);
+            if (port) {
+                DualProvider::_port = port->stream;
+                espurnaRegisterLoop(loop);
+                return true;
+            }
+
+            return false;
+        })();
+
+        return once;
     }
 
     void change(bool) override {
-        static bool scheduled { false };
-        if (!scheduled) {
-            schedule_function([]() {
-                flush();
-                scheduled = false;
-            });
-        }
+        espurnaRegisterOnceUnique(flush);
     }
 
     size_t relayId() const {
@@ -1421,17 +1352,17 @@ public:
         DEBUG_MSG_P(PSTR("[RELAY] Sending DUAL mask: %s\n"), mask.toString().c_str());
 
         uint8_t buffer[4] { 0xa0, 0x04, static_cast<unsigned char>(mask.toUnsigned()), 0xa1 };
-        Serial.write(buffer, sizeof(buffer));
-        Serial.flush();
+        _port->write(buffer, sizeof(buffer));
+        _port->flush();
     }
 
     static void loop() {
-        if (Serial.available() < 4) {
+        if (_port->available() < 4) {
             return;
         }
 
         unsigned char bytes[4] = {0};
-        Serial.readBytes(bytes, 4);
+        _port->readBytes(bytes, 4);
         if ((bytes[0] != 0xA0) && (bytes[1] != 0x04) && (bytes[3] != 0xA1)) {
             return;
         }
@@ -1456,9 +1387,11 @@ private:
     size_t _id;
 
     static std::vector<DualProvider*> _instances;
+    static Stream* _port;
 };
 
 std::vector<DualProvider*> DualProvider::_instances;
+Stream* DualProvider::_port = nullptr;
 
 #endif // RELAY_PROVIDER_DUAL_SUPPORT
 
@@ -1477,12 +1410,18 @@ public:
     }
 
     bool setup() override {
-        static bool once { false };
-        if (!once) {
-            once = true;
-            Serial.begin(SERIAL_BAUDRATE);
-        }
-        return true;
+        static bool once = ([]() {
+            const auto port = uartPort(RELAY_PROVIDER_STM_PORT - 1);
+            if (port) {
+                StmProvider::_port = port->stream;
+                espurnaRegisterLoop(loop);
+                return true;
+            }
+
+            return false;
+        })();
+
+        return once;
     }
 
     void boot(bool) override {
@@ -1492,21 +1431,26 @@ public:
     }
 
     void change(bool status) override {
-        Serial.flush();
-        Serial.write(0xA0);
-        Serial.write(_id + 1);
-        Serial.write(status);
-        Serial.write(0xA1 + status + _id);
+        if (_port) {
+            _port->flush();
+            _port->write(0xA0);
+            _port->write(_id + 1);
+            _port->write(status);
+            _port->write(0xA1 + status + _id);
 
-        // TODO: is this really solved via interlock delay, so we don't have to switch contexts here?
-        //delay(100);
+            // TODO: is this really solved via interlock delay, so we don't have to switch contexts here?
+            //delay(100);
 
-        Serial.flush();
+            _port->flush();
+        }
     }
 
 private:
     size_t _id;
+    static Stream* _port;
 };
+
+Stream* StmProvider::_port = nullptr;
 
 #endif // RELAY_PROVIDER_STM_SUPPORT
 
@@ -1514,24 +1458,13 @@ private:
 // UTILITY
 // -----------------------------------------------------------------------------
 
-bool _relayTryParseId(const char* p, size_t& id) {
-    return tryParseId(p, relayCount, id);
+bool _relayTryParseId(espurna::StringView value, size_t& id) {
+    return tryParseId(value, relayCount(), id);
 }
 
 [[gnu::unused]]
-bool _relayTryParseIdFromPath(const String& endpoint, size_t& id) {
-    int next_slash { endpoint.lastIndexOf('/') };
-    if (next_slash < 0) {
-        return false;
-    }
-
-    const char* p { endpoint.c_str() + next_slash + 1 };
-    if (*p == '\0') {
-        DEBUG_MSG_P(PSTR("[RELAY] relayID was not specified\n"));
-        return false;
-    }
-
-    return _relayTryParseId(p, id);
+bool _relayTryParseIdFromPath(espurna::StringView value, size_t& id) {
+    return tryParseIdPath(value, relayCount(), id);
 }
 
 void _relayHandleStatus(size_t id, PayloadStatus status) {
@@ -1550,19 +1483,14 @@ void _relayHandleStatus(size_t id, PayloadStatus status) {
     }
 }
 
-bool _relayHandlePayload(size_t id, const char* payload) {
-    auto status = relayParsePayload(payload);
+bool _relayHandlePayload(size_t id, espurna::StringView payload) {
+    const auto status = relayParsePayload(payload);
     if (status != PayloadStatus::Unknown) {
         _relayHandleStatus(id, status);
         return true;
     }
 
     return false;
-}
-
-[[gnu::unused]]
-bool _relayHandlePayload(size_t id, const String& payload) {
-    return _relayHandlePayload(id, payload.c_str());
 }
 
 // Initialize pulse timers after ON or OFF event
@@ -1587,7 +1515,7 @@ void _relayProcessActivePulse(const Relay& relay, size_t id, bool status) {
 // start pulse for the current status as 'target'
 // TODO: special suffixes for minutes, hours and days
 [[gnu::unused]]
-bool _relayHandlePulsePayload(size_t id, const char* payload) {
+bool _relayHandlePulsePayload(size_t id, espurna::StringView payload) {
     const auto status = relayStatus(id);
     if (_relayPulseActive(id, status)) {
         return false;
@@ -1603,11 +1531,6 @@ bool _relayHandlePulsePayload(size_t id, const char* payload) {
     }
 
     return false;
-}
-
-[[gnu::unused]]
-bool _relayHandlePulsePayload(size_t id, const String& payload) {
-    return _relayHandlePulsePayload(id, payload.c_str());
 }
 
 [[gnu::unused]]
@@ -2003,19 +1926,21 @@ size_t relayCount() {
     return _relays.size();
 }
 
-PayloadStatus relayParsePayload(const char * payload) {
+PayloadStatus relayParsePayload(espurna::StringView payload) {
 #if MQTT_SUPPORT || API_SUPPORT
-    return rpcParsePayload(payload, [](const char* payload) {
-        if (_relay_payload_off.equals(payload)) {
-            return PayloadStatus::Off;
-        } else if (_relay_payload_on.equals(payload)) {
-            return PayloadStatus::On;
-        } else if (_relay_payload_toggle.equals(payload)) {
-            return PayloadStatus::Toggle;
-        }
+    return rpcParsePayload(
+        payload,
+        [](espurna::StringView payload) {
+            if (payload.equals(_relay_payload_off)) {
+                return PayloadStatus::Off;
+            } else if (payload.equals(_relay_payload_on)) {
+                return PayloadStatus::On;
+            } else if (payload.equals(_relay_payload_toggle)) {
+                return PayloadStatus::Toggle;
+            }
 
-        return PayloadStatus::Unknown;
-    });
+            return PayloadStatus::Unknown;
+        });
 #else
     return rpcParsePayload(payload);
 #endif
@@ -2037,7 +1962,7 @@ void _relaySettingsMigrate(int version) {
                 break;
             }
 
-            auto syncKey = SettingsKey("mqttGroupSync", index);
+            auto syncKey = espurna::settings::Key(F("mqttGroupSync"), index);
             auto sync = getSetting(syncKey);
 
             setSetting({keys::TopicSub, index}, group);
@@ -2163,12 +2088,12 @@ void _relayConfigure() {
 
 namespace {
 
-bool _relayWebSocketOnKeyCheck(const char * key, JsonVariant&) {
-    return (strncmp(key, "relay", 5) == 0);
+bool _relayWebSocketOnKeyCheck(espurna::StringView key, const JsonVariant&) {
+    return espurna::settings::query::samePrefix(key, STRING_VIEW("relay"));
 }
 
 void _relayWebSocketUpdate(JsonObject& root) {
-    ::web::ws::EnumerablePayload payload{root, STRING_VIEW("relayState")};
+    espurna::web::ws::EnumerablePayload payload{root, STRING_VIEW("relayState")};
     payload(STRING_VIEW("states"), _relays.size(), {
         {STRING_VIEW("status"), [](JsonArray& out, size_t index) {
             out.add(_relays[index].target_status ? 1 : 0);
@@ -2184,11 +2109,11 @@ void _relayWebSocketSendRelays(JsonObject& root) {
         return;
     }
 
-    ::web::ws::EnumerableConfig config{root, STRING_VIEW("relayConfig")};
+    espurna::web::ws::EnumerableConfig config{root, STRING_VIEW("relayConfig")};
 
     auto& container = config.root();
-    container["size"] = _relays.size();
-    container["start"] = 0;
+    container[F("size")] = _relays.size();
+    container[F("start")] = 0;
 
     config(STRING_VIEW("relays"), _relays.size(),
         espurna::relay::settings::query::IndexedSettings);
@@ -2201,14 +2126,14 @@ void _relayWebSocketOnVisible(JsonObject& root) {
     }
 
     if (relays > 1) {
-        wsPayloadModule(root, "multirelay");
+        wsPayloadModule(root, PSTR("multirelay"));
         root[FPSTR(espurna::relay::settings::keys::Sync)] =
-            ::settings::internal::serialize(espurna::relay::settings::syncMode());
+            espurna::settings::internal::serialize(espurna::relay::settings::syncMode());
         root[FPSTR(espurna::relay::settings::keys::Interlock)] =
             espurna::relay::settings::interlockDelay().count();
     }
 
-    wsPayloadModule(root, "relay");
+    wsPayloadModule(root, PSTR("relay"));
 }
 
 void _relayWebSocketOnConnected(JsonObject& root) {
@@ -2216,14 +2141,14 @@ void _relayWebSocketOnConnected(JsonObject& root) {
 }
 
 void _relayWebSocketOnAction(uint32_t, const char* action, JsonObject& data) {
-    if (strcmp(action, "relay") == 0) {
-        if (!data.is<size_t>("id") || !data.is<String>("status")) {
+    if (strncmp_P(action, PSTR("relay"), 5) == 0) {
+        if (!data.is<size_t>(F("id")) || !data.is<String>(F("status"))) {
             return;
         }
 
-        _relayHandlePayload(
-            data["id"].as<size_t>(),
-            data["status"].as<String>().c_str());
+        const auto id = data[F("id")].as<size_t>();
+        const auto status = data[F("status")].as<String>();
+        _relayHandlePayload(id, status);
     }
 }
 
@@ -2257,9 +2182,10 @@ namespace {
 
 template <typename T>
 bool _relayApiTryHandle(ApiRequest& request, T&& callback) {
-    auto id_param = request.wildcard(0);
+    const auto param = request.wildcard(0);
+
     size_t id;
-    if (!_relayTryParseId(id_param.c_str(), id)) {
+    if (!_relayTryParseId(param, id)) {
         return false;
     }
 
@@ -2326,26 +2252,26 @@ void relaySetupAPI() {
 
 #if MQTT_SUPPORT || API_SUPPORT
 
-const String& relayPayloadOn() {
+espurna::StringView relayPayloadOn() {
     return _relay_payload_on;
 }
 
-const String& relayPayloadOff() {
+espurna::StringView relayPayloadOff() {
     return _relay_payload_off;
 }
 
-const String& relayPayloadToggle() {
+espurna::StringView relayPayloadToggle() {
     return _relay_payload_toggle;
 }
 
-const char* relayPayload(PayloadStatus status) {
+espurna::StringView relayPayload(PayloadStatus status) {
     switch (status) {
     case PayloadStatus::Off:
-        return _relay_payload_off.c_str();
+        return _relay_payload_off;
     case PayloadStatus::On:
-        return _relay_payload_on.c_str();
+        return _relay_payload_on;
     case PayloadStatus::Toggle:
-        return _relay_payload_toggle.c_str();
+        return _relay_payload_toggle;
     case PayloadStatus::Unknown:
         break;
     }
@@ -2466,13 +2392,13 @@ void _relayMqttPublishCustomTopic(size_t id) {
         status = _relayInvertStatus(status);
     }
 
-    mqttSendRaw(topic.c_str(), relayPayload(status));
+    mqttSendRaw(topic.c_str(), relayPayload(status).begin());
 }
 
 void _relayMqttReport(size_t id) {
     if (_relays[id].report) {
         _relays[id].report = false;
-        mqttSend(MQTT_TOPIC_RELAY, id, relayPayload(_relayPayloadStatus(id)));
+        mqttSend(MQTT_TOPIC_RELAY, id, relayPayload(_relayPayloadStatus(id)).c_str()); // TODO FIXED LENGTH
     }
 
     if (_relays[id].group_report) {
@@ -2483,7 +2409,7 @@ void _relayMqttReport(size_t id) {
 
 void _relayMqttReportAll() {
     for (unsigned int id=0; id < _relays.size(); id++) {
-        mqttSend(MQTT_TOPIC_RELAY, id, relayPayload(_relayPayloadStatus(id)));
+        mqttSend(MQTT_TOPIC_RELAY, id, relayPayload(_relayPayloadStatus(id)).c_str()); // TODO FIXED LENGTH
     }
 }
 
@@ -2522,7 +2448,7 @@ bool _relayMqttHeartbeat(espurna::heartbeat::Mask mask) {
     return mqttConnected();
 }
 
-void _relayMqttHandleCustomTopic(const String& topic, const char* payload) {
+void _relayMqttHandleCustomTopic(espurna::StringView topic, espurna::StringView payload) {
     PathParts received(topic);
     for (auto& topic : _relay_custom_topics) {
         if (topic.match(received)) {
@@ -2547,10 +2473,8 @@ void _relayMqttHandleDisconnect() {
 
 } // namespace
 
-void relayMQTTCallback(unsigned int type, const char* topic, char* payload) {
-
+void relayMQTTCallback(unsigned int type, espurna::StringView topic, espurna::StringView payload) {
     static bool connected { false };
-
     if (!_relays.size()) {
         return;
     }
@@ -2564,13 +2488,13 @@ void relayMQTTCallback(unsigned int type, const char* topic, char* payload) {
     }
 
     if (type == MQTT_MESSAGE_EVENT) {
-        String t = mqttMagnitude(topic);
+        const auto t = mqttMagnitude(topic);
 
         auto is_relay = t.startsWith(MQTT_TOPIC_RELAY);
         auto is_pulse = t.startsWith(MQTT_TOPIC_PULSE);
         if (is_relay || is_pulse) {
             size_t id;
-            if (!_relayTryParseIdFromPath(t.c_str(), id)) {
+            if (!_relayTryParseIdFromPath(t, id)) {
                 return;
             }
 
@@ -2620,7 +2544,7 @@ using TerminalRelayPrintExtra = void(*)(const Relay&, char* out, size_t size);
 
 template <typename T>
 String _relayTristateToPayload(T value) {
-    return ::settings::internal::RelayTristateHelper<T>::serialize(value);
+    return espurna::settings::internal::RelayTristateHelper<T>::serialize(value);
 }
 
 void _relayPrint(Print& out, const Relay& relay, size_t index) {
@@ -2637,61 +2561,74 @@ void _relayPrint(Print& out, size_t start, size_t stop) {
     }
 }
 
-void _relayInitCommands() {
-    terminalRegisterCommand(F("RELAY"), [](::terminal::CommandContext&& ctx) {
-        if (ctx.argv.size() == 1) {
-            _relayPrint(ctx.output, 0, _relays.size());
-            terminalOK(ctx);
-            return;
-        }
+PROGMEM_STRING(RelayCommand, "RELAY");
 
-        size_t id;
-        if (!_relayTryParseId(ctx.argv[1].c_str(), id)) {
-            terminalError(ctx, F("Invalid relayID"));
-            return;
-        }
-
-        if (ctx.argv.size() > 2) {
-            auto status = relayParsePayload(ctx.argv[2].c_str());
-            if (PayloadStatus::Unknown == status) {
-                terminalError(ctx, F("Invalid status"));
-                return;
-            }
-
-            _relayHandleStatus(id, status);
-            _relayPrint(ctx.output, _relays[id], id);
-            terminalOK(ctx);
-            return;
-        }
-
-        settingsDump(ctx, espurna::relay::settings::query::IndexedSettings, id);
+static void _relayCommand(::terminal::CommandContext&& ctx) {
+    if (ctx.argv.size() == 1) {
+        _relayPrint(ctx.output, 0, _relays.size());
         terminalOK(ctx);
-    });
+        return;
+    }
 
-    terminalRegisterCommand(F("PULSE"), [](::terminal::CommandContext&& ctx) {
-        if (ctx.argv.size() < 3) {
-            terminalError(ctx, F("PULSE <ID> <TIME> [<NORMAL STATUS>]"));
+    size_t id;
+    if (!_relayTryParseId(ctx.argv[1], id)) {
+        terminalError(ctx, F("Invalid relayID"));
+        return;
+    }
+
+    ctx.output.println(id);
+
+    if (ctx.argv.size() > 2) {
+        auto status = relayParsePayload(ctx.argv[2]);
+        if (PayloadStatus::Unknown == status) {
+            terminalError(ctx, F("Invalid status"));
             return;
         }
 
-        size_t id;
-        if (!_relayTryParseId(ctx.argv[1].c_str(), id)) {
-            terminalError(ctx, F("Invalid relayID"));
-            return;
-        }
-
-        if ((ctx.argv.size() == 4) && !_relayHandlePayload(id, ctx.argv[3])) {
-            terminalError(ctx, F("Invalid relay status"));
-            return;
-        }
-
-        if (!_relayHandlePulsePayload(id, ctx.argv[2])) {
-            terminalError(ctx, F("Normal state conflict"));
-            return;
-        }
-
+        _relayHandleStatus(id, status);
+        _relayPrint(ctx.output, _relays[id], id);
         terminalOK(ctx);
-    });
+        return;
+    }
+
+    settingsDump(ctx, espurna::relay::settings::query::IndexedSettings, id);
+    terminalOK(ctx);
+}
+
+PROGMEM_STRING(PulseCommand, "PULSE");
+
+static void _relayCommandPulse(::terminal::CommandContext&& ctx) {
+    if (ctx.argv.size() < 3) {
+        terminalError(ctx, F("PULSE <ID> <TIME> [<NORMAL STATUS>]"));
+        return;
+    }
+
+    size_t id;
+    if (!_relayTryParseId(ctx.argv[1], id)) {
+        terminalError(ctx, F("Invalid relayID"));
+        return;
+    }
+
+    if ((ctx.argv.size() == 4) && !_relayHandlePayload(id, ctx.argv[3])) {
+        terminalError(ctx, F("Invalid relay status"));
+        return;
+    }
+
+    if (!_relayHandlePulsePayload(id, ctx.argv[2])) {
+        terminalError(ctx, F("Normal state conflict"));
+        return;
+    }
+
+    terminalOK(ctx);
+}
+
+static constexpr ::terminal::Command RelayCommands[] PROGMEM {
+    {RelayCommand, _relayCommand},
+    {PulseCommand, _relayCommandPulse},
+};
+
+void _relayCommandsSetup() {
+    espurna::terminal::add(RelayCommands);
 }
 
 } // namespace
@@ -2922,18 +2859,18 @@ namespace settings {
 namespace query {
 namespace {
 
-bool checkSamePrefix(::settings::StringView key) {
-    alignas(4) static constexpr char Prefix[] PROGMEM = "relay";
-    return ::settings::query::samePrefix(key, Prefix);
+bool checkSamePrefix(StringView key) {
+    PROGMEM_STRING(Prefix, "relay");
+    return espurna::settings::query::samePrefix(key, Prefix);
 }
 
-String findIndexedValueFrom(::settings::StringView key) {
-    return ::settings::query::IndexedSetting::findValueFrom(_relays.size(), IndexedSettings, key);
+String findIndexedValueFrom(StringView key) {
+    return espurna::settings::query::IndexedSetting::findValueFrom(_relays.size(), IndexedSettings, key);
 }
 
-bool checkExact(::settings::StringView key) {
+bool checkExact(StringView key) {
     for (const auto& setting : Settings) {
-        if (setting.key().compareFlash(key)) {
+        if (key == setting.key()) {
             return true;
         }
     }
@@ -2941,8 +2878,8 @@ bool checkExact(::settings::StringView key) {
     return false;
 }
 
-String findValueFrom(::settings::StringView key) {
-    return ::settings::query::Setting::findValueFrom(Settings, key);
+String findValueFrom(StringView key) {
+    return espurna::settings::query::Setting::findValueFrom(Settings, key);
 }
 
 void setup() {
@@ -2983,7 +2920,7 @@ void relaySetup() {
         relaySetupMQTT();
     #endif
     #if TERMINAL_SUPPORT
-        _relayInitCommands();
+        _relayCommandsSetup();
     #endif
 
     // Main callbacks
@@ -2994,15 +2931,11 @@ void relaySetup() {
 
 bool relayAdd(RelayProviderBasePtr&& provider) {
     if (provider && provider->setup()) {
-        static bool scheduled { false };
         _relays.emplace_back(std::move(provider));
-        if (!scheduled) {
-            schedule_function([]() {
-                _relayConfigure();
-                _relayBootAll();
-                scheduled = false;
-            });
-        }
+        espurnaRegisterOnceUnique([]() {
+            _relayConfigure();
+            _relayBootAll();
+        });
         return true;
     }
 

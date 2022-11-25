@@ -12,11 +12,13 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #if WEB_SUPPORT
 
+#include <ESPAsyncWebServer.h>
+
 #include <functional>
 #include <list>
 #include <vector>
 
-#include <ESPAsyncWebServer.h>
+#include "web_utils.h"
 
 struct AsyncWebPrintConfig {
     struct Backlog {
@@ -82,8 +84,10 @@ using web_request_callback_f = std::function<bool(AsyncWebServerRequest*)>;
 
 AsyncWebServer& webServer();
 
-bool webAuthenticate(AsyncWebServerRequest *request);
-void webLog(AsyncWebServerRequest *request);
+bool webApModeRequest(AsyncWebServerRequest*);
+
+bool webAuthenticate(AsyncWebServerRequest*);
+void webLog(AsyncWebServerRequest*);
 
 void webBodyRegister(web_body_callback_f);
 void webRequestRegister(web_request_callback_f);

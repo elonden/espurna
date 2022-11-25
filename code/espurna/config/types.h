@@ -255,6 +255,13 @@
 #define LIGHT_EFFECT_SMOOTH         4
 
 //------------------------------------------------------------------------------
+// PWM
+//------------------------------------------------------------------------------
+#define PWM_PROVIDER_NONE           0
+#define PWM_PROVIDER_GENERIC        1
+#define PWM_PROVIDER_ARDUINO        2
+
+//------------------------------------------------------------------------------
 // ENVIRONMENTAL
 //------------------------------------------------------------------------------
 
@@ -326,6 +333,8 @@
 #define SENSOR_PZEM004TV30_ID       41
 #define SENSOR_BME680_ID            42
 #define SENSOR_SM300D2_ID           43
+#define SENSOR_PM1006_ID            44
+#define SENSOR_INA219_ID            45
 
 //--------------------------------------------------------------------------------
 // Magnitudes
@@ -347,8 +356,8 @@
 #define MAGNITUDE_ANALOG            12
 #define MAGNITUDE_DIGITAL           13
 #define MAGNITUDE_EVENT             14
-#define MAGNITUDE_PM1dot0           15
-#define MAGNITUDE_PM2dot5           16
+#define MAGNITUDE_PM1DOT0           15
+#define MAGNITUDE_PM2DOT5           16
 #define MAGNITUDE_PM10              17
 #define MAGNITUDE_CO2               18
 #define MAGNITUDE_LUX               19
@@ -374,6 +383,9 @@
 
 #define MAGNITUDE_MAX               39
 
+// TODO: backwards compatible sensor integer values. should probably allow custom messsages
+// (even with the increased flash arequirements)
+
 #define SENSOR_ERROR_OK             0       // No error
 #define SENSOR_ERROR_OUT_OF_RANGE   1       // Result out of sensor range
 #define SENSOR_ERROR_WARM_UP        2       // Sensor is warming-up
@@ -383,16 +395,13 @@
 #define SENSOR_ERROR_I2C            6       // Wrong or locked I2C address
 #define SENSOR_ERROR_GPIO_USED      7       // The GPIO is already in use
 #define SENSOR_ERROR_CALIBRATION    8       // Calibration error or Not calibrated
+#define SENSOR_ERROR_OVERFLOW       9       // Value overflow
+#define SENSOR_ERROR_NOT_READY      10      // Device is not ready / available / disconnected
+#define SENSOR_ERROR_CONFIG         11      // Configuration values were invalid
+#define SENSOR_ERROR_SUPPORT        12      // Not supported
 #define SENSOR_ERROR_OTHER          99      // Any other error
 
-#define SENSOR_ERROR_MAX            9
-
-//------------------------------------------------------------------------------
-// Telnet server
-//------------------------------------------------------------------------------
-
-#define TELNET_SERVER_ASYNC        0
-#define TELNET_SERVER_WIFISERVER   1
+#define SENSOR_ERROR_MAX            13
 
 //------------------------------------------------------------------------------
 // OTA Client (not related to the Web OTA support)

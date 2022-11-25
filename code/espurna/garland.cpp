@@ -12,7 +12,7 @@ Currently animation calculation, brightness calculation/transition and showing m
 Debug output shows timings. Overal timing should be not more that 3000 ms.
 
 MQTT control:
-Topic: DEVICE_NAME/garland/set
+Topic: $root/garland/set
 Message: {"command":"string", "enable":"string", "brightness":int, "speed":int, "animation":"string",
           "palette":"string"/int, "duration":int}
 All parameters are optional.
@@ -65,29 +65,29 @@ namespace {
 #include "garland/palette.h"
 #include "garland/scene.h"
 
-const char* const NAME_GARLAND_ENABLED        = "garlandEnabled";
-const char* const NAME_GARLAND_BRIGHTNESS     = "garlandBrightness";
-const char* const NAME_GARLAND_SPEED          = "garlandSpeed";
+alignas(4) static constexpr char NAME_GARLAND_ENABLED[] = "garlandEnabled";
+alignas(4) static constexpr char NAME_GARLAND_BRIGHTNESS[] = "garlandBrightness";
+alignas(4) static constexpr char NAME_GARLAND_SPEED[] = "garlandSpeed";
 
-const char* const NAME_GARLAND_SWITCH         = "garland_switch";
-const char* const NAME_GARLAND_SET_BRIGHTNESS = "garland_set_brightness";
-const char* const NAME_GARLAND_SET_SPEED      = "garland_set_speed";
-const char* const NAME_GARLAND_SET_DEFAULT    = "garland_set_default";
+alignas(4) static constexpr char NAME_GARLAND_SWITCH[] = "garland_switch";
+alignas(4) static constexpr char NAME_GARLAND_SET_BRIGHTNESS[] = "garland_set_brightness";
+alignas(4) static constexpr char NAME_GARLAND_SET_SPEED[] = "garland_set_speed";
+alignas(4) static constexpr char NAME_GARLAND_SET_DEFAULT[] = "garland_set_default";
 
-const char* const MQTT_TOPIC_GARLAND          = "garland";
+alignas(4) static constexpr char MQTT_TOPIC_GARLAND[] = "garland";
 
-const char* const MQTT_PAYLOAD_COMMAND        = "command";
-const char* const MQTT_PAYLOAD_ENABLE         = "enable";
-const char* const MQTT_PAYLOAD_BRIGHTNESS     = "brightness";
-const char* const MQTT_PAYLOAD_ANIM_SPEED     = "speed";
-const char* const MQTT_PAYLOAD_ANIMATION      = "animation";
-const char* const MQTT_PAYLOAD_PALETTE        = "palette";
-const char* const MQTT_PAYLOAD_DURATION       = "duration";
+alignas(4) static constexpr char MQTT_PAYLOAD_COMMAND[] = "command";
+alignas(4) static constexpr char MQTT_PAYLOAD_ENABLE[] = "enable";
+alignas(4) static constexpr char MQTT_PAYLOAD_BRIGHTNESS[] = "brightness";
+alignas(4) static constexpr char MQTT_PAYLOAD_ANIM_SPEED[] = "speed";
+alignas(4) static constexpr char MQTT_PAYLOAD_ANIMATION[] = "animation";
+alignas(4) static constexpr char MQTT_PAYLOAD_PALETTE[] = "palette";
+alignas(4) static constexpr char MQTT_PAYLOAD_DURATION[] = "duration";
 
-const char* const MQTT_COMMAND_IMMEDIATE      = "immediate";
-const char* const MQTT_COMMAND_RESET          = "reset"; // reset queue
-const char* const MQTT_COMMAND_QUEUE          = "queue"; // enqueue command payload
-const char* const MQTT_COMMAND_SEQUENCE       = "sequence"; // place command to sequence
+alignas(4) static constexpr char MQTT_COMMAND_IMMEDIATE[] = "immediate";
+alignas(4) static constexpr char MQTT_COMMAND_RESET[] = "reset"; // reset queue
+alignas(4) static constexpr char MQTT_COMMAND_QUEUE[] = "queue"; // enqueue command payload
+alignas(4) static constexpr char MQTT_COMMAND_SEQUENCE[] = "sequence"; // place command to sequence
 
 #define EFFECT_UPDATE_INTERVAL_MIN      7000  // 5 sec
 #define EFFECT_UPDATE_INTERVAL_MAX      12000 // 10 sec
@@ -209,7 +209,7 @@ void setDefault() {
 #if WEB_SUPPORT
 //------------------------------------------------------------------------------
 void _garlandWebSocketOnVisible(JsonObject& root) {
-    wsPayloadModule(root, "garland");
+    wsPayloadModule(root, PSTR("garland"));
 }
 
 void _garlandWebSocketOnConnected(JsonObject& root) {
@@ -219,11 +219,10 @@ void _garlandWebSocketOnConnected(JsonObject& root) {
 }
 
 //------------------------------------------------------------------------------
-bool _garlandWebSocketOnKeyCheck(const char* key, JsonVariant& value) {
-    if (strncmp(key, NAME_GARLAND_ENABLED, strlen(NAME_GARLAND_ENABLED)) == 0) return true;
-    if (strncmp(key, NAME_GARLAND_BRIGHTNESS, strlen(NAME_GARLAND_BRIGHTNESS)) == 0) return true;
-    if (strncmp(key, NAME_GARLAND_SPEED, strlen(NAME_GARLAND_SPEED)) == 0) return true;
-    return false;
+bool _garlandWebSocketOnKeyCheck(espurna::StringView key, const JsonVariant&) {
+    return espurna::settings::query::samePrefix(key, NAME_GARLAND_ENABLED)
+        || espurna::settings::query::samePrefix(key, NAME_GARLAND_BRIGHTNESS)
+        || espurna::settings::query::samePrefix(key, NAME_GARLAND_SPEED);
 }
 
 //------------------------------------------------------------------------------
@@ -330,11 +329,11 @@ bool executeCommand(const String& command) {
             one_color_palette.reset(new Palette("Color", {root[MQTT_PAYLOAD_PALETTE].as<uint32_t>()}));
             newPalette = one_color_palette.get();
         } else {
-            auto palette = root[MQTT_PAYLOAD_PALETTE].as<const char*>();
+            auto palette = root[MQTT_PAYLOAD_PALETTE].as<String>();
             bool palette_found = false;
             for (size_t i = 0; i < pals.size(); ++i) {
                 auto pal_name = pals[i].name();
-                if (strcmp(palette, pal_name) == 0) {
+                if (palette = pal_name) {
                     newPalette = &pals[i];
                     palette_found = true;
                     scene_setup_required = true;
@@ -342,9 +341,9 @@ bool executeCommand(const String& command) {
                 }
             }
             if (!palette_found) {
-                uint32_t color = (uint32_t)strtoul(palette, NULL, 0);
-                if (color != 0) {
-                    one_color_palette.reset(new Palette("Color", {color}));
+                const auto result = parseUnsigned(palette);
+                if (result.ok) {
+                    one_color_palette.reset(new Palette("Color", {result.value}));
                     newPalette = one_color_palette.get();
                 }
             }
@@ -410,19 +409,16 @@ void garlandLoop(void) {
 }
 
 //------------------------------------------------------------------------------
-void garlandMqttCallback(unsigned int type, const char* topic, char* payload) {
+void garlandMqttCallback(unsigned int type, espurna::StringView topic, espurna::StringView payload) {
     if (type == MQTT_CONNECT_EVENT) {
         mqttSubscribe(MQTT_TOPIC_GARLAND);
     }
 
     if (type == MQTT_MESSAGE_EVENT) {
-        // Match topic
-        String t = mqttMagnitude(topic);
-
+        auto t = mqttMagnitude(topic);
         if (t.equals(MQTT_TOPIC_GARLAND)) {
-            // Parse JSON input
             DynamicJsonBuffer jsonBuffer;
-            JsonObject& root = jsonBuffer.parseObject(payload);
+            JsonObject& root = jsonBuffer.parseObject(payload.begin());
             if (!root.success()) {
                 DEBUG_MSG_P(PSTR("[GARLAND] Error parsing mqtt data\n"));
                 return;
@@ -434,7 +430,7 @@ void garlandMqttCallback(unsigned int type, const char* topic, char* payload) {
             }
 
             if (command == MQTT_COMMAND_IMMEDIATE) {
-                _immediate_command = payload;
+                _immediate_command = payload.toString();
             } else if (command == MQTT_COMMAND_RESET) {
                 std::queue<String> empty_queue;
                 std::swap(_command_queue, empty_queue);
@@ -445,9 +441,9 @@ void garlandMqttCallback(unsigned int type, const char* topic, char* payload) {
                 setDefault();
                 garlandEnabled(true);
             } else if (command == MQTT_COMMAND_QUEUE) {
-                _command_queue.push(payload);
+                _command_queue.push(payload.toString());
             } else if (command == MQTT_COMMAND_SEQUENCE) {
-                _command_sequence.push_back(payload);
+                _command_sequence.push_back(payload.toString());
             }
         }
     }
@@ -675,18 +671,19 @@ byte Anim::rngb() {
 //------------------------------------------------------------------------------
 
 void garlandEnabled(bool enabled) {
-    _garland_enabled = enabled;
     setSetting(NAME_GARLAND_ENABLED, _garland_enabled);
-    if (!_garland_enabled) {
-        schedule_function([]() {
+    if (_garland_enabled != enabled) {
+        espurnaRegisterOnceUnique([]() {
             pixels.clear();
             pixels.show();
         });
     }
 
+    _garland_enabled = enabled;
+
 #if WEB_SUPPORT
-    wsPost([](JsonObject& root) {
-        root["garlandEnabled"] = _garland_enabled;
+    wsPost([enabled](JsonObject& root) {
+        root["garlandEnabled"] = enabled;
     });
 #endif
 }

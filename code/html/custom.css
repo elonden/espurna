@@ -73,6 +73,10 @@ h2 {
     display: none;
 }
 
+.maybe-hidden {
+    display: none;
+}
+
 input[name=upgrade] {
     display: none;
 }
@@ -164,7 +168,7 @@ label {
 .emon-expected-volt,
 .emon-expected-curr,
 .emon-expected-ene {
-    display: none;
+    content-visibility: hidden;
 }
 
 /* -----------------------------------------------------------------------------
@@ -457,15 +461,6 @@ input[disabled] + .toggle .toggle__handler {
 }
 
 /* -----------------------------------------------------------------------------
-    Home panel
-   -------------------------------------------------------------------------- */
-
-#color {
-    padding-bottom: 1em;
-    padding-top: 1em;
-}
-
-/* -----------------------------------------------------------------------------
     Admin panel
    -------------------------------------------------------------------------- */
 
@@ -595,4 +590,35 @@ input::placeholder {
 #error-notification {
     width: 100%;
     box-shadow: 0 1px 2px 1px rgb(192 0 0 / 25%)
+}
+
+/* -----------------------------------------------------------------------------
+    Lights
+   -------------------------------------------------------------------------- */
+
+#light-picker {
+    padding-bottom: 1em;
+    padding-top: 1em;
+    contain-intrinsic-size: 0px;
+    content-visibility: hidden;
+    opacity: 0;
+    display: none;
+}
+
+#light-picker.light-on {
+    display: block;
+    opacity: 1;
+    content-visibility: visible;
+    contain: style layout paint;
+}
+
+#light-picker.light-cct,
+#light-picker.light-on.light-cct {
+    content-visibility: hidden;
+    opacity: 0;
+    display: none;
+}
+
+#light-cct {
+    content-visibility: hidden;
 }

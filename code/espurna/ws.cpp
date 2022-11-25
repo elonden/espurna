@@ -21,16 +21,24 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 #include "wifi.h"
 #include "ws_internal.h"
 
-#include "libs/WebSocketIncommingBuffer.h"
+#include "libs/WebSocketIncomingBuffer.h"
 
 // -----------------------------------------------------------------------------
 // Helpers / utility functions
 // -----------------------------------------------------------------------------
 
+namespace espurna {
 namespace web {
 namespace ws {
-namespace build {
 namespace {
+
+namespace internal {
+
+PROGMEM_STRING(SchemaKey, "schema");
+
+} // namespace internal
+
+namespace build {
 
 constexpr uint16_t port() {
     return WEB_PORT;
@@ -40,22 +48,15 @@ constexpr bool authentication() {
     return 1 == WS_AUTHENTICATION;
 }
 
-} // namespace
 } // namespace build
 
-namespace internal {
-namespace {
-
-alignas(4) static constexpr char SchemaKey[] PROGMEM = "schema";
-
 } // namespace
-} // namespace internal
 
-EnumerableConfig::EnumerableConfig(JsonObject& root, Name name) :
+EnumerableConfig::EnumerableConfig(JsonObject& root, StringView name) :
     _root(root.createNestedObject(FPSTR(name.c_str())))
 {}
 
-void EnumerableConfig::operator()(Name name, ::settings::Iota iota, Check check, Setting* begin, Setting* end) {
+void EnumerableConfig::operator()(StringView name, espurna::settings::Iota iota, Check check, Setting* begin, Setting* end) {
     JsonArray& entries = _root.createNestedArray(FPSTR(name.c_str()));
 
     if (_root.containsKey(FPSTR(internal::SchemaKey))) {
@@ -79,11 +80,11 @@ void EnumerableConfig::operator()(Name name, ::settings::Iota iota, Check check,
     }
 }
 
-EnumerablePayload::EnumerablePayload(JsonObject& root, Name name) :
+EnumerablePayload::EnumerablePayload(JsonObject& root, StringView name) :
     _root(root.createNestedObject(FPSTR(name.c_str())))
 {}
 
-void EnumerablePayload::operator()(Name name, settings::Iota iota, Check check, Pairs&& pairs) {
+void EnumerablePayload::operator()(StringView name, settings::Iota iota, Check check, Pairs&& pairs) {
     JsonArray& entries = _root.createNestedArray(FPSTR(name.c_str()));
 
     if (_root.containsKey(FPSTR(internal::SchemaKey))) {
@@ -112,6 +113,7 @@ void EnumerablePayload::operator()(Name name, settings::Iota iota, Check check, 
 
 } // namespace ws
 } // namespace web
+} // namespace espurna
 
 // -----------------------------------------------------------------------------
 // Periodic updates
@@ -312,12 +314,11 @@ constexpr espurna::duration::Seconds WsTimeout { WS_TIMEOUT };
 WsTicket _ws_tickets[WsMaxClients];
 
 void _onAuth(AsyncWebServerRequest* request) {
-    webLog(request);
-    if (!webAuthenticate(request)) {
+    if (!webApModeRequest(request) && !webAuthenticate(request)) {
         return request->requestAuthentication();
     }
 
-    IPAddress ip = request->client()->remoteIP();
+    auto ip = request->client()->remoteIP();
     auto now = WsTicket::TimeSource::now();
 
     auto it = std::begin(_ws_tickets);
@@ -327,6 +328,7 @@ void _onAuth(AsyncWebServerRequest* request) {
             || (now - (*it).timestamp > WsTimeout)) {
             break;
         }
+        ++it;
     }
 
     if (it != std::end(_ws_tickets)) {
@@ -375,40 +377,75 @@ bool _wsAuth(AsyncWebSocketClient* client) {
 
 namespace {
 
-constexpr size_t WsDebugMessagesMax = 8;
-WsDebug _ws_debug(WsDebugMessagesMax);
+struct WsDebug {
+    static constexpr int Limit { 8 };
+
+    WsDebug() = default;
+    WsDebug(const WsDebug&) = delete;
+    WsDebug(WsDebug&&) = delete;
+
+    void clear() {
+        _buffer = String();
+        _count = 0;
+    }
+
+    void operator()(const char* prefix, const char* message) {
+        if (wsConnected()) {
+            if ((_count > Limit) && !send()) {
+                return;
+            }
+
+            auto pre_len = strlen(prefix);
+            auto msg_len = strlen(message);
+            _buffer.reserve(_buffer.length() + pre_len + msg_len);
+            _buffer.concat(prefix, pre_len);
+            _buffer.concat(message, msg_len);
+
+            ++_count;
+        }
+    }
+
+    bool send(bool connected) {
+        if (!connected && (_count || _buffer.length())) {
+            clear();
+            return false;
+        }
+
+        // ref: http://arduinojson.org/v5/assistant/ for pre-allocation math
+        if (_count && connected) {
+            DynamicJsonBuffer buffer((2 * JSON_OBJECT_SIZE(1)) + JSON_ARRAY_SIZE(1));
+
+            JsonObject& root = buffer.createObject();
+            JsonObject& log = root.createNestedObject("log");
+
+            JsonArray& msg = log.createNestedArray("msg");
+            msg.add(_buffer.c_str());
+
+            wsSend(root);
+            clear();
+
+            return true;
+        }
+
+        return false;
+    }
+
+    bool send() {
+        return send(wsConnected());
+    }
+
+private:
+    String _buffer;
+    int _count { 0 };
+};
+
+WsDebug _ws_debug;
 
 } // namespace
 
-void WsDebug::send(bool connected) {
-    if (!connected && _flush) {
-        clear();
-        return;
-    }
-
-    if (!_flush) return;
-    // ref: http://arduinojson.org/v5/assistant/
-    // {"log": {"msg":[...],"pre":[...]}}
-    DynamicJsonBuffer jsonBuffer(2*JSON_ARRAY_SIZE(_messages.size()) + JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(2));
-
-    JsonObject& root = jsonBuffer.createObject();
-    JsonObject& log = root.createNestedObject("log");
-
-    JsonArray& msg_array = log.createNestedArray("msg");
-    JsonArray& pre_array = log.createNestedArray("pre");
-
-    for (auto& msg : _messages) {
-        pre_array.add(msg.first.c_str());
-        msg_array.add(msg.second.c_str());
-    }
-
-    wsSend(root);
-    clear();
-}
-
 bool wsDebugSend(const char* prefix, const char* message) {
     if ((wifiConnected() || wifiApStations()) && wsConnected()) {
-        _ws_debug.add(prefix, message);
+        _ws_debug(prefix, message);
         return true;
     }
 
@@ -425,10 +462,10 @@ namespace {
 
 // Check the existing setting before saving it
 // (we only care about the settings storage, don't mind the build values)
-bool _wsStore(const String& key, const String& value) {
-    auto current = settings::internal::get(key);
+bool _wsStore(String key, const String& value) {
+    const auto current = espurna::settings::get(key);
     if (!current || (current.ref() != value)) {
-        return settings::internal::set(key, value);
+        return espurna::settings::set(key, value);
     }
 
     return false;
@@ -436,16 +473,16 @@ bool _wsStore(const String& key, const String& value) {
 
 // TODO: generate "accepted" keys in the initial phase of the connection?
 // TODO: is value ever used... by anything?
-bool _wsCheckKey(const char* key, JsonVariant& value) {
+bool _wsCheckKey(const String& key, const JsonVariant& value) {
 #if NTP_SUPPORT
-    if (strncmp_P(key, PSTR("ntpTZ"), strlen(key)) == 0) {
+    if (key == STRING_VIEW("ntpTZ")) {
         _wsResetUpdateTimer();
         return true;
     }
 #endif
 
-    if (strncmp_P(key, PSTR("adminPass"), strlen(key)) == 0) {
-        const auto pass = getAdminPass();
+    if (key == STRING_VIEW("adminPass")) {
+        const auto pass = systemPassword();
         return !pass.equalsConstantTime(value.as<String>());
     }
 
@@ -480,27 +517,27 @@ void _wsPostParse(uint32_t client_id, bool save, bool reload) {
     });
 }
 
-void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
-
-    //DEBUG_MSG_P(PSTR("[WEBSOCKET] Parsing: %s\n"), length ? (char*) payload : "");
-
-    // Get client ID
-    uint32_t client_id = client->id();
+void _wsParse(AsyncWebSocketClient* client, uint8_t* payload, size_t length) {
+    //DEBUG_MSG_P(PSTR("[WEBSOCKET] Parsing: %.*s\n"),
+    //    length, reinterpret_cast<cont char*>(payload));
 
     // Check early for empty object / nothing
-    if ((length == 0) || (length == 1)) {
+    if ((length < 2) || (payload[0] != '{')) {
         return;
     }
 
-    if ((length == 3) && (strcmp((char*) payload, "{}") == 0)) {
+    if ((length == 2) && (payload[1] == '}')) {
         return;
     }
 
-    // Parse JSON input
-    // TODO: json buffer should be pretty efficient with the non-const payload,
+    // Notice that the buffer payload above *is null terminated*!
+    // JSON parser should be pretty efficient with the non-const payload,
     // most of the space is taken by the object key references
+    const auto client_id = client->id();
+    auto* ptr = reinterpret_cast<char*>(payload);
+
     DynamicJsonBuffer jsonBuffer(512);
-    JsonObject& root = jsonBuffer.parseObject((char *) payload);
+    JsonObject& root = jsonBuffer.parseObject(ptr);
     if (!root.success()) {
         wsPost(client_id, [](JsonObject& root) {
             root[F("message")] = F("JSON parsing error");
@@ -526,11 +563,7 @@ void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
         }
 
         if (strcmp(action, "reconnect") == 0) {
-            static Ticker timer;
-            timer.once_ms_scheduled(100, []() {
-                wifiDisconnect();
-                yield();
-            });
+            wifiDisconnect();
             return;
         }
 
@@ -543,13 +576,12 @@ void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
         if (data.success()) {
             if (strcmp(action, "restore") == 0) {
                 const auto* message = settingsRestoreJson(data)
-                    ? F("Changes saved, you should be able to reboot now")
-                    : F("Cound not restore the configuration, see the debug log for more information");
+                    ? PSTR("Changes saved, you should be able to reboot now")
+                    : PSTR("Cound not restore the configuration, see the debug log for more information");
 
                 wsPost(client_id, [message](JsonObject& root) {
-                    root[F("message")] = message;
+                    root[F("message")] = FPSTR(message);
                 });
-
                 return;
             }
 
@@ -577,63 +609,71 @@ void _wsParse(AsyncWebSocketClient *client, uint8_t * payload, size_t length) {
     // TODO: pass key as string, we always attempt to use it as such
     JsonObject& toAssign = settings["set"];
     for (auto& kv : toAssign) {
-        String key = kv.key;
-        JsonVariant& value = kv.value;
-        if (!_wsCheckKey(key.c_str(), value)) {
-            continue;
-        }
-
-        if (_wsStore(key, value.as<String>())) {
-            save = true;
+        const String key = kv.key;
+        if (_wsCheckKey(key, kv.value)) {
+            if (_wsStore(key, kv.value.as<String>())) {
+                save = true;
+            }
         }
     }
 
     _wsPostParse(client_id, save, reload);
 }
 
-bool _wsOnKeyCheck(const char* key, JsonVariant&) {
-    const auto keylen = strlen(key);
-    return (strncmp_P(key, PSTR("ws"), 2) == 0)
-        || (strncmp_P(key, PSTR("adminPass"), keylen) == 0)
-        || (strncmp_P(key, PSTR("hostname"), keylen) == 0)
-        || (strncmp_P(key, PSTR("desc"), keylen) == 0)
-        || (strncmp_P(key, PSTR("webPort"), keylen) == 0);
+bool _wsOnKeyCheck(espurna::StringView key, const JsonVariant&) {
+    return (key == STRING_VIEW("adminPass"))
+        || (key == STRING_VIEW("hostname"))
+        || (key == STRING_VIEW("desc"))
+        || (key == STRING_VIEW("webPort"))
+        || key.startsWith(STRING_VIEW("ws"));
 }
 
 void _wsOnConnected(JsonObject& root) {
     root[F("webMode")] = WEB_MODE_NORMAL;
 
-    root[F("app_name")] = getAppName();
-    root[F("app_version")] = getVersion();
-    root[F("app_build")] = buildTime();
-    root[F("device")] = getDevice();
-    root[F("manufacturer")] = getManufacturer();
-    root[F("chipid")] = getFullChipId().c_str();
+    const auto info = buildInfo();
+    root[F("sdk")] = info.sdk.base.c_str();
+    root[F("core")] = info.sdk.version.c_str();
+
+    // nb: flash strings are copied anyway, can't just use as a ptr.
+    // need to explicitly copy through our own ctor operator as `String`,
+    // we should not expect that the given view is actually a C-string
+    root[F("manufacturer")] =
+        String(info.hardware.manufacturer);
+    root[F("device")] =
+        String(info.hardware.device);
+
+    root[F("app_name")] =
+        String(info.app.name);
+    root[F("app_version")] =
+        String(info.app.version);
+    root[F("app_build")] = info.app.build_time.c_str();
+
+    root[F("hostname")] = systemHostname();
+    root[F("chipid")] = systemChipId().c_str();
+    root[F("desc")] = systemDescription();
+
     root[F("bssid")] = WiFi.BSSIDstr();
     root[F("channel")] = WiFi.channel();
-    root[F("hostname")] = getHostname();
-    root[F("desc")] = getDescription();
     root[F("network")] = wifiStaSsid();
     root[F("deviceip")] = wifiStaIp().toString();
     root[F("sketch_size")] = ESP.getSketchSize();
     root[F("free_size")] = ESP.getFreeSketchSpace();
-    root[F("sdk")] = ESP.getSdkVersion();
-    root[F("core")] = getCoreVersion();
 
-    root[F("webPort")] = getSetting(F("webPort"), web::ws::build::port());
-    root[F("wsAuth")] = getSetting(F("wsAuth"), web::ws::build::authentication());
+    root[F("webPort")] = getSetting(F("webPort"), espurna::web::ws::build::port());
+    root[F("wsAuth")] = getSetting(F("wsAuth"), espurna::web::ws::build::authentication());
 }
 
 void _wsConnected(uint32_t client_id) {
-
+    static const auto defaultPassword = String(systemDefaultPassword());
     const bool changePassword = (USE_PASSWORD && WEB_FORCE_PASS_CHANGE)
-        ? getAdminPass().equals(ADMIN_PASS)
+        ? systemPassword().equalsConstantTime(defaultPassword)
         : false;
 
     if (changePassword) {
-        StaticJsonBuffer<JSON_OBJECT_SIZE(1)> jsonBuffer;
+        DynamicJsonBuffer jsonBuffer(32);
         JsonObject& root = jsonBuffer.createObject();
-        root["webMode"] = WEB_MODE_PASSWORD;
+        root[F("webMode")] = WEB_MODE_PASSWORD;
         wsSend(client_id, root);
         return;
     }
@@ -641,52 +681,62 @@ void _wsConnected(uint32_t client_id) {
     wsPostAll(client_id, _ws_callbacks.on_visible);
     wsPostSequence(client_id, _ws_callbacks.on_connected);
     wsPostSequence(client_id, _ws_callbacks.on_data);
-
 }
 
-void _wsEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len){
-
-    if (type == WS_EVT_CONNECT) {
-
-        client->_tempObject = nullptr;
-        String ip = client->remoteIP().toString();
-
+void _wsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+    switch (type) {
+    case WS_EVT_CONNECT:
+    {
+        const auto ip = client->remoteIP().toString();
 #ifndef NOWSAUTH
         if (!_wsAuth(client)) {
-            DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u session expired for %s\n"), client->id(), ip.c_str());
+            DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u session expired for %s\n"),
+                client->id(), ip.c_str());
             client->close();
             return;
         }
 #endif
 
-        DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u connected, ip: %s, url: %s\n"), client->id(), ip.c_str(), server->url());
+        DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u connected, ip: %s, url: %s\n"),
+            client->id(), ip.c_str(), server->url());
+
         _wsConnected(client->id());
         _wsResetUpdateTimer();
-        client->_tempObject = new WebSocketIncommingBuffer(_wsParse, true);
 
-    } else if(type == WS_EVT_DISCONNECT) {
+        client->_tempObject = new WebSocketIncomingBuffer(_wsParse);
+        break;
+    }
+
+    case WS_EVT_DISCONNECT:
         DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u disconnected\n"), client->id());
         if (client->_tempObject) {
-            delete (WebSocketIncommingBuffer *) client->_tempObject;
+            auto* ptr = reinterpret_cast<WebSocketIncomingBuffer*>(client->_tempObject);
+            delete ptr;
             client->_tempObject = nullptr;
         }
         wifiApCheck();
+        break;
 
-    } else if(type == WS_EVT_ERROR) {
-        DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u error(%u): %s\n"), client->id(), *((uint16_t*)arg), (char*)data);
-
-    } else if(type == WS_EVT_PONG) {
-        DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u pong(%u): %s\n"), client->id(), len, len ? (char*) data : "");
-
-    } else if(type == WS_EVT_DATA) {
-        //DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u data(%u): %s\n"), client->id(), len, len ? (char*) data : "");
-        if (!client->_tempObject) return;
-        WebSocketIncommingBuffer *buffer = (WebSocketIncommingBuffer *)client->_tempObject;
-        AwsFrameInfo * info = (AwsFrameInfo*)arg;
-        buffer->data_event(client, info, data, len);
-
+    case WS_EVT_ERROR:
+    {
+        uint16_t code;
+        std::memcpy(&code, arg, 2);
+        DEBUG_MSG_P(PSTR("[WEBSOCKET] #%u error(%hu)\n"), client->id(), code);
+        break;
     }
 
+    case WS_EVT_PONG:
+        break;
+
+    case WS_EVT_DATA:
+        if (client->_tempObject) {
+            auto *buffer = reinterpret_cast<WebSocketIncomingBuffer*>(client->_tempObject);
+            AwsFrameInfo * info = (AwsFrameInfo*)arg;
+            buffer->data_event(client, info, data, len);
+        }
+        break;
+
+    }
 }
 
 void _wsHandlePostponedCallbacks(bool connected) {
@@ -763,6 +813,16 @@ void _wsLoop() {
 // Public API
 // -----------------------------------------------------------------------------
 
+WsClientInfo wsClientInfo(uint32_t client_id) {
+    auto* client = _ws.client(client_id);
+
+    WsClientInfo out;
+    out.connected = (client != nullptr);
+    out.stalled = out.connected && client->queueIsFull();
+
+    return out;
+}
+
 bool wsConnected() {
     return (_ws.count() > 0);
 }
@@ -771,12 +831,12 @@ bool wsConnected(uint32_t client_id) {
     return _ws.hasClient(client_id);
 }
 
-void wsPayloadModule(JsonObject& root, const char* const name) {
-    const char* const key { "modulesVisible" };
-    JsonArray& modules = root.containsKey(key)
-        ? root[key]
-        : root.createNestedArray(key);
-    modules.add(name);
+void wsPayloadModule(JsonObject& root, const char* name) {
+    PROGMEM_STRING(Key, "modulesVisible");
+    JsonArray& modules = root.containsKey(FPSTR(Key))
+        ? root[FPSTR(Key)]
+        : root.createNestedArray(FPSTR(Key));
+    modules.add(FPSTR(name));
 }
 
 ws_callbacks_t& wsRegister() {
@@ -844,10 +904,10 @@ void wsSetup() {
     webServer().addHandler(&_ws);
 
     // CORS
-    const String webDomain = getSetting("webDomain", WEB_REMOTE_DOMAIN);
-    DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", webDomain);
+    const String webDomain = getSetting(F("webDomain"), F(WEB_REMOTE_DOMAIN));
+    DefaultHeaders::Instance().addHeader(F("Access-Control-Allow-Origin"), webDomain);
     if (!webDomain.equals("*")) {
-        DefaultHeaders::Instance().addHeader("Access-Control-Allow-Credentials", "true");
+        DefaultHeaders::Instance().addHeader(F("Access-Control-Allow-Credentials"), F("true"));
     }
 
     webServer().on("/auth", HTTP_GET, _onAuth);

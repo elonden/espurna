@@ -19,12 +19,15 @@
 #define MQTT_TOPIC_KELVIN           "kelvin"
 #define MQTT_TOPIC_TRANSITION       "transition"
 
-// TODO: lowercase
-namespace Light {
+namespace espurna {
+namespace light {
 
 constexpr size_t ChannelsMax { 5 };
 
 constexpr long ValueStep { LIGHT_STEP };
+
+// TODO: separate internal and external scaling?
+// TODO: allow wider value range than just 8bit?
 
 constexpr long ValueMin { LIGHT_MIN_VALUE };
 constexpr long ValueMax { LIGHT_MAX_VALUE };
@@ -35,39 +38,13 @@ constexpr long BrightnessMax { LIGHT_MAX_BRIGHTNESS };
 constexpr long MiredsCold { LIGHT_COLDWHITE_MIRED };
 constexpr long MiredsWarm { LIGHT_WARMWHITE_MIRED };
 
-constexpr long PwmMin { LIGHT_MIN_PWM };
-constexpr long PwmMax { LIGHT_MAX_PWM };
-constexpr long PwmLimit { LIGHT_LIMIT_PWM };
+struct Report {
+    static constexpr int None = 0;
+    static constexpr int Web = 1 << 0;
+    static constexpr int Mqtt = 1 << 1;
+    static constexpr int MqttGroup = 1 << 2;
 
-enum class Report {
-    None = 0,
-    Web = 1 << 0,
-    Mqtt = 1 << 1,
-    MqttGroup = 1 << 2
-};
-
-constexpr int operator|(Report lhs, int rhs) {
-    return static_cast<int>(lhs) | rhs;
-}
-
-constexpr int operator|(int lhs, Report rhs) {
-    return lhs | static_cast<int>(rhs);
-}
-
-constexpr int operator|(Report lhs, Report rhs) {
-    return static_cast<int>(lhs) | static_cast<int>(rhs);
-}
-
-constexpr int operator&(int lhs, Report rhs) {
-    return lhs & static_cast<int>(rhs);
-}
-
-constexpr int operator&(Report lhs, int rhs) {
-    return static_cast<int>(lhs) & rhs;
-}
-
-constexpr int DefaultReport {
-    Report::Web | Report::Mqtt | Report::MqttGroup
+    static constexpr int Default { Web | Mqtt | MqttGroup };
 };
 
 struct Hsv {
@@ -80,6 +57,8 @@ struct Hsv {
     static constexpr long ValueMin { 0 };
     static constexpr long ValueMax { 100 };
 
+    using Array = std::array<long, 3>;
+
     Hsv() = default;
     Hsv(const Hsv&) = default;
     Hsv(Hsv&&) = default;
@@ -87,22 +66,35 @@ struct Hsv {
     Hsv& operator=(const Hsv&) = default;
     Hsv& operator=(Hsv&&) = default;
 
-    Hsv(long hue, long saturation, long value) :
+#if __cplusplus > 201103L
+    constexpr
+#endif
+    explicit Hsv(Array array) noexcept :
+        _hue(array[0]),
+        _saturation(array[1]),
+        _value(array[2])
+    {}
+
+    constexpr Hsv(long hue, long saturation, long value) noexcept :
         _hue(std::clamp(hue, HueMin, HueMax)),
         _saturation(std::clamp(saturation, SaturationMin, SaturationMax)),
         _value(std::clamp(value, ValueMin, ValueMax))
     {}
 
-    long hue() const {
+    constexpr long hue() const {
         return _hue;
     }
 
-    long saturation() const {
+    constexpr long saturation() const {
         return _saturation;
     }
 
-    long value() const {
+    constexpr long value() const {
         return _value;
+    }
+
+    constexpr Array asArray() const {
+        return Array{{_hue, _saturation, _value}};
     }
 
 private:
@@ -122,21 +114,21 @@ struct Rgb {
     Rgb& operator=(const Rgb&) = default;
     Rgb& operator=(Rgb&&) = default;
 
-    Rgb(long red, long green, long blue) :
+    constexpr Rgb(long red, long green, long blue) noexcept :
         _red(std::clamp(red, Min, Max)),
         _green(std::clamp(green, Min, Max)),
         _blue(std::clamp(blue, Min, Max))
     {}
 
-    long red() const {
+    constexpr long red() const {
         return _red;
     }
 
-    long green() const {
+    constexpr long green() const {
         return _green;
     }
 
-    long blue() const {
+    constexpr long blue() const {
         return _blue;
     }
 
@@ -146,27 +138,36 @@ private:
     long _blue { Min };
 };
 
-struct MiredsRange {
-    constexpr MiredsRange() = default;
-    MiredsRange(long cold, long warm) :
+struct Mireds {
+    long value;
+};
+
+struct Kelvin {
+    long value;
+};
+
+struct TemperatureRange {
+    TemperatureRange() = delete;
+    constexpr TemperatureRange(long cold, long warm) noexcept :
         _cold(cold),
         _warm(warm)
     {}
 
-    long cold() const {
+    constexpr long cold() const {
         return _cold;
     }
 
-    long warm() const {
+    constexpr long warm() const {
         return _warm;
     }
 
 private:
-    long _cold { MiredsCold };
-    long _warm { MiredsWarm };
+    long _cold;
+    long _warm;
 };
 
-} // namespace Light
+} // namespace light
+} // namespace espurna
 
 using LightStateListener = std::function<void(bool)>;
 using LightReportListener = void(*)();
@@ -190,14 +191,20 @@ LightTransition lightTransition();
 espurna::duration::Milliseconds lightTransitionTime();
 espurna::duration::Milliseconds lightTransitionStep();
 
+// Transition from current state to the previously prepared one
+// (using any of functions declared down below which modify global state, channel values or their state)
 void lightTransition(espurna::duration::Milliseconds time, espurna::duration::Milliseconds step);
-void lightTransition(LightTransition transition);
+void lightTransition(LightTransition);
 
-void lightColor(const char* color, bool rgb);
-void lightColor(const String& color, bool rgb);
+// Light internals are forced to be sequential. In case some actions need to happen
+// right after transition / channel state / state changes, it will call these functions
+using LightSequenceCallbacks = std::forward_list<espurna::Callback>;
 
-void lightColor(const char* color);
-void lightColor(const String& color);
+void lightSequence(LightSequenceCallbacks);
+void lightUpdateSequence(LightTransition);
+
+void lightParseHsv(espurna::StringView);
+void lightParseRgb(espurna::StringView);
 
 String lightRgbPayload();
 String lightHsvPayload();
@@ -206,15 +213,16 @@ String lightColor();
 bool lightSave();
 void lightSave(bool save);
 
-Light::Rgb lightRgb();
-void lightRgb(Light::Rgb);
+espurna::light::Rgb lightRgb();
+void lightRgb(espurna::light::Rgb);
 
-Light::Hsv lightHsv();
+espurna::light::Hsv lightHsv();
 void lightHs(long hue, long saturation);
-void lightHsv(Light::Hsv);
+void lightHsv(espurna::light::Hsv);
 
-void lightMireds(long mireds);
-Light::MiredsRange lightMiredsRange();
+void lightTemperature(espurna::light::Kelvin);
+void lightTemperature(espurna::light::Mireds);
+espurna::light::TemperatureRange lightMiredsRange();
 
 void lightRed(long value);
 long lightRed();
@@ -251,13 +259,16 @@ void lightBrightnessStep(long steps, long multiplier);
 void lightChannelStep(size_t id, long steps);
 void lightChannelStep(size_t id, long steps, long multiplier);
 
-void lightUpdate(LightTransition transition, Light::Report report, bool save);
 void lightUpdate(LightTransition transition, int report, bool save);
 void lightUpdate(LightTransition transition);
 void lightUpdate(bool save);
 void lightUpdate();
 
 bool lightHasColor();
+bool lightHasWarmWhite();
+bool lightHasColdWhite();
+bool lightHasWhite();
+
 bool lightUseRGB();
 bool lightUseCCT();
 

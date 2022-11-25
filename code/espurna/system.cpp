@@ -8,8 +8,6 @@ Copyright (C) 2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #include "espurna.h"
 
-#include <Ticker.h>
-
 #include "rtcmem.h"
 #include "ws.h"
 #include "ntp.h"
@@ -42,50 +40,54 @@ extern "C" unsigned long adc_rand_noise;
 
 namespace espurna {
 namespace system {
+namespace {
+
 namespace settings {
-
 namespace options {
-namespace internal {
-namespace {
 
-alignas(4) static constexpr char None[] PROGMEM = "none";
-alignas(4) static constexpr char Once[] PROGMEM = "once";
-alignas(4) static constexpr char Repeat[] PROGMEM = "repeat";
+PROGMEM_STRING(None, "none");
+PROGMEM_STRING(Once, "once");
+PROGMEM_STRING(Repeat, "repeat");
 
-} // namespace
-} // namespace internal
-
-namespace {
-
-static constexpr ::settings::options::Enumeration<heartbeat::Mode> HeartbeatModeOptions[] PROGMEM {
-    {heartbeat::Mode::None, internal::None},
-    {heartbeat::Mode::Once, internal::Once},
-    {heartbeat::Mode::Repeat, internal::Repeat},
+static constexpr espurna::settings::options::Enumeration<heartbeat::Mode> HeartbeatModeOptions[] PROGMEM {
+    {heartbeat::Mode::None, None},
+    {heartbeat::Mode::Once, Once},
+    {heartbeat::Mode::Repeat, Repeat},
 };
 
-} // namespace
 } // namespace options
-} // namespace settings
-} // namespace system
-} // namespace espurna
 
-// -----------------------------------------------------------------------------
+namespace keys {
+
+PROGMEM_STRING(Hostname, "hostname");
+PROGMEM_STRING(Description, "desc");
+PROGMEM_STRING(Password, "adminPass");
+
+} // namespace keys
+
+} // namespace settings
+} // namespace
+} // namespace system
 
 namespace settings {
 namespace internal {
-namespace {
-
-using espurna::system::settings::options::HeartbeatModeOptions;
-
-} // namespace
 
 template <>
 espurna::heartbeat::Mode convert(const String& value) {
-    return convert(HeartbeatModeOptions, value, espurna::heartbeat::Mode::Repeat);
+    return convert(system::settings::options::HeartbeatModeOptions, value, heartbeat::Mode::Repeat);
 }
 
 String serialize(espurna::heartbeat::Mode mode) {
-    return serialize(HeartbeatModeOptions, mode);
+    return serialize(system::settings::options::HeartbeatModeOptions, mode);
+}
+
+template <>
+duration::Seconds convert(const String& value) {
+    return duration::Seconds(convert<duration::Seconds::rep>(value));
+}
+
+String serialize(espurna::duration::Seconds value) {
+    return serialize(value.count());
 }
 
 template <>
@@ -94,12 +96,8 @@ std::chrono::duration<float> convert(const String& value) {
 }
 
 template <>
-espurna::duration::Milliseconds convert(const String& value) {
-    return espurna::duration::Milliseconds(convert<espurna::duration::Milliseconds::rep>(value));
-}
-
-String serialize(espurna::duration::Seconds value) {
-    return serialize(value.count());
+duration::Milliseconds convert(const String& value) {
+    return duration::Milliseconds(convert<duration::Milliseconds::rep>(value));
 }
 
 String serialize(espurna::duration::Milliseconds value) {
@@ -110,17 +108,11 @@ String serialize(espurna::duration::ClockCycles value) {
     return serialize(value.count());
 }
 
-template <>
-espurna::duration::Seconds convert(const String& value) {
-    return espurna::duration::Seconds(convert<espurna::duration::Seconds::rep>(value));
-}
-
 } // namespace internal
 } // namespace settings
 
 // -----------------------------------------------------------------------------
 
-namespace espurna {
 namespace system {
 
 uint32_t RandomDevice::operator()() const {
@@ -137,25 +129,290 @@ uint32_t RandomDevice::operator()() const {
     return adc_rand_noise ^ *(reinterpret_cast<volatile uint32_t*>(Address));
 }
 
+namespace {
+
+namespace internal {
+
+PROGMEM_STRING(Hostname, HOSTNAME);
+PROGMEM_STRING(Password, ADMIN_PASS);
+
+} // namespace internal
+
+StringView chip_id() {
+    const static String out = ([]() {
+        const uint32_t regs[3] {
+            READ_PERI_REG(0x3ff00050),
+            READ_PERI_REG(0x3ff00054),
+            READ_PERI_REG(0x3ff0005c)};
+
+        uint8_t mac[6] {
+            0xff,
+            0xff,
+            0xff,
+            static_cast<uint8_t>((regs[1] >> 8ul) & 0xfful),
+            static_cast<uint8_t>(regs[1] & 0xffu),
+            static_cast<uint8_t>((regs[0] >> 24ul) & 0xffu)};
+
+        if (mac[2] != 0) {
+            mac[0] = (regs[2] >> 16ul) & 0xffu;
+            mac[1] = (regs[2] >> 8ul) & 0xffu;
+            mac[2] = (regs[2] & 0xffu);
+        } else if (0 == ((regs[1] >> 16ul) & 0xff)) {
+            mac[0] = 0x18;
+            mac[1] = 0xfe;
+            mac[2] = 0x34;
+        } else if (1 == ((regs[1] >> 16ul) & 0xff)) {
+            mac[0] = 0xac;
+            mac[1] = 0xd0;
+            mac[2] = 0x74;
+        }
+
+        return hexEncode(mac);
+    })();
+
+    return out;
+}
+
+StringView short_chip_id() {
+    const auto full = chip_id();
+    return StringView(full.begin() + 6, full.end());
+}
+
+StringView device() {
+    const static String out = ([]() {
+        String out;
+
+        const auto hardware = buildHardware();
+        out.concat(hardware.manufacturer.c_str(),
+            hardware.manufacturer.length());
+        out += '_';
+        out.concat(hardware.device.c_str(),
+            hardware.device.length());
+
+        return out;
+    })();
+
+    return out;
+}
+
+StringView identifier() {
+    const static String out = ([]() {
+        String out;
+
+        const auto app = buildApp();
+        out.concat(app.name.c_str(), app.name.length());
+
+        out += '-';
+
+        const auto id = short_chip_id();
+        out.concat(id.c_str(), id.length());
+
+        return out;
+    })();
+
+    return out;
+}
+
+String description() {
+    return getSetting(settings::keys::Description);
+}
+
+String hostname() {
+    if (__builtin_strlen(internal::Hostname) > 0) {
+        return getSetting(settings::keys::Hostname, internal::Hostname);
+    }
+
+    return getSetting(settings::keys::Hostname, identifier());
+}
+
+StringView default_password() {
+    return internal::Password;
+}
+
+String password() {
+    return getSetting(settings::keys::Password, default_password());
+}
+
+// something rudimentary, just to avoid comparing these strings directly
+// ref. `CRYPTO`, `cst_time`, `ct` aka constant time operations.
+// might really be useless for us, though, since output can happen
+// at almost random times when dealing with LWIP stack and networking requests
+#if 0
+namespace internal {
+
+using Hash = std::array<uint8_t, 16>;
+
+Hash md5_hash(StringView data) {
+    Hash out;
+
+    MD5Builder builder;
+    builder.begin();
+    builder.add(reinterpret_cast<const uint8_t*>(data.c_str()), data.length());
+    builder.calculate();
+    builder.getBytes(out.data());
+
+    return out;
+}
+
+} // namespace internal
+
+bool password_equals(StringView other) {
+    const auto password = system::password();
+    return internal::md5_hash(other)
+        == internal::md5_hash(password);
+}
+#endif
+
+bool password_equals(StringView other) {
+    const auto password = system::password();
+    return other == password;
+}
+
+namespace settings {
+namespace query {
+
+static constexpr std::array<espurna::settings::query::Setting, 3> Settings PROGMEM {{
+     {keys::Description, system::description},
+     {keys::Hostname, system::hostname},
+     {keys::Password, system::password},
+}};
+
+bool checkExact(StringView key) {
+    return espurna::settings::query::Setting::findFrom(Settings, key) != Settings.end();
+}
+
+String findValueFrom(StringView key) {
+    return espurna::settings::query::Setting::findValueFrom(Settings, key);
+}
+
+void setup() {
+    settingsRegisterQueryHandler({
+        .check = checkExact,
+        .get = findValueFrom,
+    });
+}
+
+} // namespace query
+} // namespace settings
+
+} // namespace
 } // namespace system
 
 namespace time {
 
-void blockingDelay(CoreClock::duration timeout, CoreClock::duration interval) {
-    const auto start = CoreClock::now();
-    while (CoreClock::now() - start < timeout) {
-        delay(interval);
+// c/p from the Core 3.1.0, allow an additional calculation, so we don't delay more than necessary
+// plus, another helper when there are no external blocking checker
+
+bool tryDelay(CoreClock::time_point start, CoreClock::duration timeout, CoreClock::duration interval) {
+    auto elapsed = CoreClock::now() - start;
+    if (elapsed < timeout) {
+        delay(std::min((timeout - elapsed), interval));
+        return false;
     }
+
+    return true;
+}
+
+void blockingDelay(CoreClock::duration timeout, CoreClock::duration interval) {
+    blockingDelay(timeout, interval, []() {
+        return true;
+    });
 }
 
 void blockingDelay(CoreClock::duration timeout) {
-    blockingDelay(timeout, espurna::duration::Milliseconds(1));
+    blockingDelay(timeout, timeout);
 }
 
 } // namespace time
 
-namespace memory {
+namespace timer {
+
+constexpr SystemTimer::Duration SystemTimer::DurationMin;
+constexpr SystemTimer::Duration SystemTimer::DurationMax;
+
+SystemTimer::SystemTimer() = default;
+
+void SystemTimer::start(duration::Milliseconds duration, Callback callback, bool repeat) {
+    stop();
+    if (!duration.count()) {
+        return;
+    }
+
+    if (!_timer) {
+        _timer.reset(new os_timer_t{});
+    }
+    _armed = _timer.get();
+
+    _callback = std::move(callback);
+    _repeat = repeat;
+
+    os_timer_setfn(_timer.get(),
+        [](void* arg) {
+            reinterpret_cast<SystemTimer*>(arg)->callback();
+        },
+        this);
+
+    size_t total = 0;
+    if (duration > DurationMax) {
+        total = 1;
+        while (duration > DurationMax) {
+            total *= 2;
+            duration /= 2;
+        }
+        _tick.reset(new Tick{
+            .total = total,
+            .count = 0,
+        });
+        repeat = true;
+    }
+
+    os_timer_arm(_armed, duration.count(), repeat);
+}
+
+void SystemTimer::stop() {
+    if (_armed) {
+        os_timer_disarm(_armed);
+    }
+    reset();
+}
+
+void SystemTimer::reset() {
+    _armed = nullptr;
+    _callback = Callback();
+    _tick = nullptr;
+}
+
+void SystemTimer::callback() {
+    if (_tick) {
+        ++_tick->count;
+        if (_tick->count < _tick->total) {
+            return;
+        }
+    }
+
+    _callback();
+
+    if (_repeat) {
+        if (_tick) {
+            _tick->count = 0;
+        }
+        return;
+    }
+
+    stop();
+}
+
+void SystemTimer::schedule_once(Duration duration, Callback callback) {
+    once(duration, [callback]() {
+        espurnaRegisterOnce(callback);
+    });
+}
+
+} // namespace timer
+
 namespace {
+
+namespace memory {
 
 // returns 'total stack size' minus 'un-painted area'
 // needs re-painting step, as this never decreases
@@ -214,51 +471,52 @@ HeapStats heapStats() {
     return heapStats(ESP, HasHeapStatsFix<EspClass>{});
 }
 
-} // namespace
 } // namespace memory
 
 namespace boot {
-namespace {
 
 String serialize(CustomResetReason reason) {
-    const __FlashStringHelper* ptr { nullptr };
+    const char* ptr { PSTR("None") };
+
     switch (reason) {
     case CustomResetReason::None:
-        ptr = F("None");
         break;
     case CustomResetReason::Button:
-        ptr = F("Hardware button");
+        ptr = PSTR("Hardware button");
         break;
     case CustomResetReason::Factory:
-        ptr = F("Factory reset");
+        ptr = PSTR("Factory reset");
         break;
     case CustomResetReason::Hardware:
-        ptr = F("Reboot from a Hardware request");
+        ptr = PSTR("Reboot from a Hardware request");
         break;
     case CustomResetReason::Mqtt:
-        ptr = F("Reboot from MQTT");
+        ptr = PSTR("Reboot from MQTT");
         break;
     case CustomResetReason::Ota:
-        ptr = F("Reboot after a successful OTA update");
+        ptr = PSTR("Reboot after a successful OTA update");
         break;
     case CustomResetReason::Rpc:
-        ptr = F("Reboot from a RPC action");
+        ptr = PSTR("Reboot from a RPC action");
         break;
     case CustomResetReason::Rule:
-        ptr = F("Reboot from an automation rule");
+        ptr = PSTR("Reboot from an automation rule");
         break;
     case CustomResetReason::Scheduler:
-        ptr = F("Reboot from a scheduler action");
+        ptr = PSTR("Reboot from a scheduler action");
         break;
     case CustomResetReason::Terminal:
-        ptr = F("Reboot from a terminal command");
+        ptr = PSTR("Reboot from a terminal command");
         break;
     case CustomResetReason::Web:
-        ptr = F("Reboot from web interface");
+        ptr = PSTR("Reboot from web interface");
+        break;
+    case CustomResetReason::Stability:
+        ptr = PSTR("Reboot after changing stability counter");
         break;
     }
 
-    return String(ptr);
+    return ptr;
 }
 
 // The ESPLive has an ADC MUX which needs to be configured.
@@ -339,55 +597,10 @@ namespace internal {
 
 Data persistent_data { &Rtcmem->sys };
 
-Ticker timer;
+timer::SystemTimer timer;
 bool flag { true };
 
 } // namespace internal
-}
-
-namespace {
-
-#if SYSTEM_CHECK_ENABLED
-namespace stability {
-namespace build {
-namespace {
-
-constexpr uint8_t ChecksMin { 0 };
-constexpr uint8_t ChecksMax { SYSTEM_CHECK_MAX };
-static_assert(ChecksMax > 1, "");
-static_assert(ChecksMin < ChecksMax, "");
-
-constexpr espurna::duration::Seconds CheckTime { SYSTEM_CHECK_TIME };
-static_assert(CheckTime > espurna::duration::Seconds::min(), "");
-
-} // namespace
-} // namespace build
-
-namespace {
-
-void init() {
-    // on cold boot / rst, bumps count to 2 so we don't end up
-    // spamming crash recorder in case something goes wrong
-    const auto count = static_cast<bool>(internal::persistent_data)
-        ? internal::persistent_data.counter() : 1u;
-
-    internal::flag = (count < build::ChecksMax);
-    internal::timer.once_scheduled(build::CheckTime.count(), []() {
-        DEBUG_MSG_P(PSTR("[MAIN] Resetting stability counter\n"));
-        internal::persistent_data.counter(build::ChecksMin);
-    });
-
-    const auto next = count + 1u;
-    internal::persistent_data.counter((next > build::ChecksMax) ? count : next);
-}
-
-bool check() {
-    return internal::flag;
-}
-
-} // namespace
-} // namespace stability
-#endif
 
 // system_get_rst_info() result is cached by the Core init for internal use
 uint32_t system_reason() {
@@ -411,7 +624,150 @@ void customReason(CustomResetReason reason) {
     internal::persistent_data.reason(reason);
 }
 
-} // namespace
+#if SYSTEM_CHECK_ENABLED
+namespace stability {
+namespace build {
+
+static constexpr uint8_t ChecksMin { 1 };
+static constexpr uint8_t ChecksMax { SYSTEM_CHECK_MAX };
+
+static constexpr uint8_t ChecksIncrement { 1 };
+
+static_assert(ChecksMax > 1, "");
+static_assert(ChecksMin < ChecksMax, "");
+
+constexpr espurna::duration::Seconds CheckTime { SYSTEM_CHECK_TIME };
+static_assert(CheckTime > espurna::duration::Seconds::min(), "");
+
+} // namespace build
+
+void force_stable() {
+    internal::persistent_data.counter(build::ChecksMin);
+    internal::flag = true;
+}
+
+void force_unstable() {
+    internal::persistent_data.counter(build::ChecksMax);
+    internal::flag = false;
+}
+
+uint8_t counter() {
+    return static_cast<bool>(internal::persistent_data)
+        ? internal::persistent_data.counter()
+        : build::ChecksMin;
+}
+
+void reset() {
+    DEBUG_MSG_P(PSTR("[MAIN] Resetting stability counter\n"));
+    internal::persistent_data.counter(build::ChecksMin);
+}
+
+void init() {
+    const auto count = counter();
+
+    switch (system_reason()) {
+    // initial boot and rst are probably just fine
+    case REASON_DEFAULT_RST:
+    case REASON_EXT_SYS_RST:
+        force_stable();
+        return;
+    // no need to run the timer when counter gets changed manually
+    case REASON_SOFT_RESTART:
+        if (customReason() == CustomResetReason::Stability) {
+            internal::flag = (count < build::ChecksMax);
+            return;
+        }
+        break;
+    }
+
+    // bump counter value and persist. if we re-enter with maximum
+    // once more, system is flagged as unstable.
+    // so, we simply wait for the timer to reset back to minimum
+    // and start the cycle again
+    const auto next = std::min(build::ChecksMax,
+        static_cast<uint8_t>(count + build::ChecksIncrement));
+    internal::persistent_data.counter(next);
+    internal::flag = (count < build::ChecksMax);
+
+    internal::timer.once(build::CheckTime, reset);
+}
+
+bool check() {
+    return internal::flag;
+}
+
+} // namespace stability
+#endif
+
+void pre() {
+    // Some magic to allow seamless Tasmota OTA upgrades
+    // - inject dummy data sequence that is expected to hold current version info
+    // - purge settings, since we don't want accidentaly reading something as a kv
+    // - sometimes we cannot boot b/c of certain SDK params, purge last 16KiB
+    {
+        // ref. `SetOption78 1` in Tasmota
+        // - https://tasmota.github.io/docs/Commands/#setoptions (> SetOption78   Version check on Tasmota upgrade)
+        // - https://github.com/esphome/esphome/blob/0e59243b83913fc724d0229514a84b6ea14717cc/esphome/core/esphal.cpp#L275-L287 (the original idea from esphome)
+        // - https://github.com/arendst/Tasmota/blob/217addc2bb2cf46e7633c93e87954b245cb96556/tasmota/settings.ino#L218-L262 (specific checks, which succeed when finding 0xffffffff as version)
+        // - https://github.com/arendst/Tasmota/blob/0dfa38df89c8f2a1e582d53d79243881645be0b8/tasmota/i18n.h#L780-L782 (constants)
+        volatile uint32_t magic[] __attribute__((unused)) {
+            0x5aa55aa5,
+            0xffffffff,
+            0xa55aa55a,
+        };
+
+        // ref. https://github.com/arendst/Tasmota/blob/217addc2bb2cf46e7633c93e87954b245cb96556/tasmota/settings.ino#L24
+        // We will certainly find these when rebooting from Tasmota. Purge SDK as well, since we may experience WDT after starting up the softAP
+        auto* rtcmem = reinterpret_cast<volatile uint32_t*>(RTCMEM_ADDR);
+        if ((0xA55A == rtcmem[64]) && (0xA55A == rtcmem[68])) {
+            DEBUG_MSG_P(PSTR("[MAIN] TASMOTA OTA, resetting...\n"));
+            rtcmem[64] = rtcmem[68] = 0;
+            customResetReason(CustomResetReason::Factory);
+            resetSettings();
+            eraseSDKConfig();
+            __builtin_trap();
+            // can't return!
+        }
+
+        // TODO: also check for things throughout the flash sector, somehow?
+    }
+
+    // Workaround for SDK changes between 1.5.3 and 2.2.x or possible
+    // flash corruption happening to the 'default' WiFi config
+#if SYSTEM_CHECK_ENABLED
+    if (!stability::check()) {
+        const uint32_t Address { ESP.getFlashChipSize() - (FLASH_SECTOR_SIZE * 3) };
+
+        static constexpr size_t PageSize { 256 };
+#ifdef FLASH_PAGE_SIZE
+        static_assert(FLASH_PAGE_SIZE == PageSize, "");
+#endif
+        static constexpr auto Alignment = alignof(uint32_t);
+        alignas(Alignment) std::array<uint8_t, PageSize> page;
+
+        if (ESP.flashRead(Address, reinterpret_cast<uint32_t*>(page.data()), page.size())) {
+            constexpr uint32_t ConfigOffset { 0xb0 };
+
+            // In case flash was already erased at some point, but we are still here
+            alignas(Alignment) const std::array<uint8_t, 8> Empty { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+            if (std::memcpy(&page[ConfigOffset], &Empty[0], Empty.size()) != 0) {
+                return;
+            }
+
+            // 0x00B0:  0A 00 00 00 45 53 50 2D XX XX XX XX XX XX 00 00     ESP-XXXXXX
+            alignas(Alignment) const std::array<uint8_t, 8> Reference { 0xa0, 0x00, 0x00, 0x00, 0x45, 0x53, 0x50, 0x2d };
+            if (std::memcmp(&page[ConfigOffset], &Reference[0], Reference.size()) != 0) {
+                DEBUG_MSG_P(PSTR("[MAIN] Invalid SDK config at 0x%08X, resetting...\n"), Address + ConfigOffset);
+                customResetReason(CustomResetReason::Factory);
+                systemForceStable();
+                forceEraseSDKConfig();
+                // can't return!
+            }
+        }
+    }
+#endif
+}
+
 } // namespace boot
 
 // -----------------------------------------------------------------------------
@@ -419,17 +775,13 @@ void customReason(CustomResetReason reason) {
 // Calculated load average of the loop() as a percentage (notice that this may not be accurate)
 namespace load_average {
 namespace build {
-namespace {
 
 static constexpr size_t ValueMax { 100 };
 
 static constexpr espurna::duration::Seconds Interval { LOADAVG_INTERVAL };
 static_assert(Interval <= espurna::duration::Seconds(90), "");
 
-} // namespace
 } // namespace build
-
-namespace {
 
 using TimeSource = espurna::time::SystemClock;
 using Type = unsigned long;
@@ -476,30 +828,13 @@ void loop() {
         : 0;
 }
 
-} // namespace
 } // namespace load_average
+} // namespace
 
 // -----------------------------------------------------------------------------
 
 namespace heartbeat {
 namespace {
-
-String serialize(espurna::heartbeat::Mode mode) {
-    const __FlashStringHelper* ptr { nullptr };
-    switch (mode) {
-    case Mode::None:
-        ptr = F("none");
-        break;
-    case Mode::Once:
-        ptr = F("once");
-        break;
-    case Mode::Repeat:
-        ptr = F("repeat");
-        break;
-    }
-
-    return String(ptr);
-}
 
 namespace build {
 
@@ -539,13 +874,11 @@ constexpr Mask value() {
 
 namespace settings {
 namespace keys {
-namespace {
 
-alignas(4) static constexpr char Mode[] PROGMEM = "hbMode";
-alignas(4) static constexpr char Interval[] PROGMEM = "hbInterval";
-alignas(4) static constexpr char Report[] PROGMEM = "hbReport";
+PROGMEM_STRING(Mode, "hbMode");
+PROGMEM_STRING(Interval, "hbInterval");
+PROGMEM_STRING(Report, "hbReport");
 
-} // namespace
 } // namespace keys
 
 Mode mode() {
@@ -582,7 +915,7 @@ struct CallbackRunner {
 
 namespace internal {
 
-Ticker timer;
+timer::SystemTimer timer;
 std::vector<CallbackRunner> runners;
 bool scheduled { false };
 
@@ -642,11 +975,13 @@ void run() {
         next = BeatMin;
     }
 
-    internal::timer.once_ms(next.count(), schedule);
+    internal::timer.once(next, schedule);
 }
 
 void stop(Callback callback) {
-    auto found = std::remove_if(internal::runners.begin(), internal::runners.end(),
+    auto found = std::remove_if(
+        internal::runners.begin(),
+        internal::runners.end(),
         [&](const CallbackRunner& runner) {
             return callback == runner.callback;
         });
@@ -670,7 +1005,7 @@ void push(Callback callback, Mode mode, duration::Seconds interval) {
         offset - msec
     });
 
-    internal::timer.detach();
+    internal::timer.stop();
     schedule();
 }
 
@@ -713,7 +1048,8 @@ void init() {
         const auto mode = settings::mode();
         if (mode != Mode::None) {
             DEBUG_MSG_P(PSTR("[MAIN] Heartbeat \"%s\", every %u (seconds)\n"),
-                serialize(mode).c_str(), settings::interval().count());
+                espurna::settings::internal::serialize(mode).c_str(),
+                settings::interval().count());
         } else {
             DEBUG_MSG_P(PSTR("[MAIN] Heartbeat disabled\n"));
         }
@@ -723,6 +1059,8 @@ void init() {
     pushOnce([](Mask) {
         if (!espurna::boot::stability::check()) {
             DEBUG_MSG_P(PSTR("[MAIN] System UNSTABLE\n"));
+        } else if (espurna::boot::internal::timer) {
+            DEBUG_MSG_P(PSTR("[MAIN] Pending stability counter reset...\n"));
         }
         return true;
     });
@@ -732,36 +1070,59 @@ void init() {
 }
 
 } // namespace
+
+// system defaults, r/n this is used when providing module-specific settings
+
+espurna::duration::Milliseconds currentIntervalMs() {
+    return settings::interval();
+}
+
+espurna::duration::Seconds currentInterval() {
+    return settings::interval();
+}
+
+Mask currentValue() {
+    return settings::value();
+}
+
+Mode currentMode() {
+    return settings::mode();
+}
+
 } // namespace heartbeat
+
+namespace {
 
 #if WEB_SUPPORT
 namespace web {
-namespace {
 
 void onConnected(JsonObject& root) {
   root[FPSTR(heartbeat::settings::keys::Report)] = heartbeat::settings::value();
   root[FPSTR(heartbeat::settings::keys::Interval)] =
       heartbeat::settings::interval().count();
   root[FPSTR(heartbeat::settings::keys::Mode)] =
-      ::settings::internal::serialize(heartbeat::settings::mode());
+      espurna::settings::internal::serialize(heartbeat::settings::mode());
 }
 
-bool onKeyCheck(const char* key, JsonVariant&) {
-    const auto view = ::settings::StringView{ key };
-    return ::settings::query::samePrefix(view, STRING_VIEW("sys"))
-        || ::settings::query::samePrefix(view, STRING_VIEW("hb"));
+bool onKeyCheck(StringView key, const JsonVariant&) {
+    return espurna::settings::query::samePrefix(key, STRING_VIEW("sys"))
+        || espurna::settings::query::samePrefix(key, STRING_VIEW("hb"));
 }
 
-} // namespace
+void init() {
+    wsRegister()
+        .onConnected(onConnected)
+        .onKeyCheck(onKeyCheck);
+}
+
 } // namespace web
 #endif
 
 // Allow to schedule a reset at the next loop
 // Store reset reason both here and in for the next boot
 namespace internal {
-namespace {
 
-Ticker reset_timer;
+timer::SystemTimer reset_timer;
 auto reset_reason = CustomResetReason::None;
 
 void reset(CustomResetReason reason) {
@@ -769,10 +1130,7 @@ void reset(CustomResetReason reason) {
     reset_reason = reason;
 }
 
-} // namespace
 } // namespace internal
-
-namespace {
 
 // raw reboot call, effectively:
 // ```
@@ -781,12 +1139,9 @@ namespace {
 // ```
 // triggered in SYS, might not always result in a clean reboot b/c of expected suspend
 // triggered in CONT *should* end up never returning back and loop might now be needed
-// (but, try to force swdt reboot in case it somehow happens)
 [[noreturn]] void reset() {
     ESP.restart();
-    for (;;) {
-        delay(100);
-    }
+    __builtin_trap();
 }
 
 // 'simple' reboot call with software controlled time
@@ -802,9 +1157,11 @@ static constexpr espurna::duration::Milliseconds ShortDelayForReset { 500 };
 void deferredReset(duration::Milliseconds delay, CustomResetReason reason) {
     DEBUG_MSG_P(PSTR("[MAIN] Requested reset: %s\n"),
         espurna::boot::serialize(reason).c_str());
-    internal::reset_timer.once_ms(delay.count(), [reason]() {
-        internal::reset(reason);
-    });
+    internal::reset_timer.once(
+        delay,
+        [reason]() {
+            internal::reset(reason);
+        });
 }
 
 // SDK reserves last 16KiB on the flash for it's own means
@@ -827,34 +1184,36 @@ duration::Seconds uptime() {
         time::SystemClock::now().time_since_epoch());
 }
 
+void loop() {
+    pending_reset_loop();
+    load_average::loop();
+    heartbeat::loop();
+}
+
+void setup() {
+    boot::pre();
+
+    boot::hardware();
+    boot::customReason();
+
+#if SYSTEM_CHECK_ENABLED
+    boot::stability::init();
+#endif
+
+#if WEB_SUPPORT
+    web::init();
+#endif
+
+    system::settings::query::setup();
+
+    espurnaRegisterLoop(loop);
+    heartbeat::init();
+}
+
 } // namespace
 } // namespace espurna
 
 // -----------------------------------------------------------------------------
-
-namespace espurna {
-namespace heartbeat {
-
-// system defaults, r/n used when providing module-specific settings
-
-espurna::duration::Milliseconds currentIntervalMs() {
-    return espurna::heartbeat::settings::interval();
-}
-
-espurna::duration::Seconds currentInterval() {
-    return espurna::heartbeat::settings::interval();
-}
-
-Mask currentValue() {
-    return espurna::heartbeat::settings::value();
-}
-
-Mode currentMode() {
-    return espurna::heartbeat::settings::mode();
-}
-
-} // namespace heartbeat
-} // namespace espurna
 
 unsigned long systemFreeStack() {
     return espurna::memory::freeStack();
@@ -932,6 +1291,14 @@ void systemStabilityCounter(uint8_t count) {
     espurna::boot::internal::persistent_data.counter(count);
 }
 
+void systemForceUnstable() {
+    espurna::boot::stability::force_unstable();
+}
+
+void systemForceStable() {
+    espurna::boot::stability::force_stable();
+}
+
 bool systemCheck() {
     return espurna::boot::stability::check();
 }
@@ -964,30 +1331,46 @@ void systemScheduleHeartbeat() {
     espurna::heartbeat::reschedule();
 }
 
-void systemLoop() {
-    espurna::pending_reset_loop();
-    espurna::load_average::loop();
-    espurna::heartbeat::loop();
-}
-
 espurna::duration::Seconds systemUptime() {
     return espurna::uptime();
 }
 
+espurna::StringView systemDevice() {
+    return espurna::system::device();
+}
+
+espurna::StringView systemIdentifier() {
+    return espurna::system::identifier();
+}
+
+espurna::StringView systemChipId() {
+    return espurna::system::chip_id();
+}
+
+espurna::StringView systemShortChipId() {
+    return espurna::system::short_chip_id();
+}
+
+espurna::StringView systemDefaultPassword() {
+    return espurna::system::default_password();
+}
+
+String systemPassword() {
+    return espurna::system::password();
+}
+
+bool systemPasswordEquals(espurna::StringView other) {
+    return espurna::system::password_equals(other);
+}
+
+String systemHostname() {
+    return espurna::system::hostname();
+}
+
+String systemDescription() {
+    return espurna::system::description();
+}
+
 void systemSetup() {
-    espurna::boot::hardware();
-    espurna::boot::customReason();
-
-#if SYSTEM_CHECK_ENABLED
-    espurna::boot::stability::init();
-#endif
-
-#if WEB_SUPPORT
-    wsRegister()
-        .onConnected(espurna::web::onConnected)
-        .onKeyCheck(espurna::web::onKeyCheck);
-#endif
-
-    espurnaRegisterLoop(systemLoop);
-    espurna::heartbeat::init();
+    espurna::setup();
 }

@@ -231,13 +231,16 @@
                                 <div id="relays"></div>
 
                                 <!-- removeIf(!light) -->
-                                <div id="color"></div>
-                                <div id="cct"></div>
-                                <!-- endRemoveIf(!light) -->
+                                <div id="light">
+                                    <div class="pure-control-group light-control">
+                                        <label>Lights</label>
+                                        <div><input type="checkbox" name="light-state"></div>
+                                    </div>
+                                    <div class="pure-control-group">
+                                        <div id="light-picker"></div>
+                                    </div>
+                                </div>
 
-                                <!-- removeIf(!light) -->
-                                <div id="channels"></div>
-                                <div id="light"></div>
                                 <!-- endRemoveIf(!light) -->
 
                                 <!-- removeIf(!sensor) -->
@@ -673,15 +676,17 @@
                                     <label>Use white channel</label>
                                     <div><input type="checkbox" name="useWhite" data-action="reload"></div>
                                     <span class="pure-form-message">
-                                        For 2 channels warm white and cold white lights or color lights to use forth dimmable channel as (cold) white light calculated out of the RGB values. This setting will only work when the device has at least 4 dimmable channels. Enabling this will render the Channel #4 slider on the status page unavailable.
+                                        When device is configured as RGB + WW (warm white), use RGB to balance the &quot;warm white&quot; channel, while the &quot;Cold channel&quot; is still configurable.
+                                        <br>This option hides <strong>RGB</strong> and <strong>WW</strong> sliders!
                                     </span>
                                 </div>
 
                                 <div class="pure-control-group">
-                                    <label>Use white color temperature</label>
+                                    <label>Use color temperature</label>
                                     <div><input type="checkbox" name="useCCT" data-action="reload"></div>
                                     <span class="pure-form-message">
-                                        Use a dimmable channel as warm white light and another dimmable channel as cold white light.<br>On devices with two dimmable channels the first use used for warm white light and the second for cold white light.<br>On color lights the fifth use used for warm white light and the fourth for cold white light.<br>Will only work if the device has exactly 2 dimmable channels or at least 5 dimmable channels and "white channel" above is also ON.<br>Enabling this will render useless the "Channel 5" slider in the status page.
+                                        Balance between &quot;cold&quot; and &quot;warm&quot; when channel configuration has WW (warm white) and CW (cold white) channels available. When RGB is also available, replace its values with an approximation based on the current &quot;Mireds&quot; value.
+                                        <br>This option hides <strong>all channel sliders</strong>
                                     </span>
                                 </div>
 
@@ -1268,9 +1273,38 @@
 
                                 <div class="pure-control-group">
                                     <label>Time Zone</label>
-                                    <input name="ntpTZ" type="text">
-                                    <span class="pure-form-message-inline">POSIX TZ variable, defaults to <code>UTC0</code>. For the list of possible values, <a class="external" href="https://github.com/esp8266/Arduino/blob/master/cores/esp8266/TZ.h">see esp8266/Arduino's TZ.h (use the value inside of quotes)</a>.</span>
-                                    <span class="pure-form-message-inline">For the complete documentation, <a class="external" href="https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html">see libc tzset(3) manual page</a></span>
+                                    <input name="ntpTZ" type="text" list="list:ntpTZ">
+                                    <span class="pure-form-message-inline">POSIX TZ variable, defaults to <code>UTC0</code> aka "Coordinated Universal Time". For example, basic offset is expressed as either <code>UTC2</code> (meaning "UTC minus 2 hours"), or <code>UTC-2</code> ("UTC plus 2 hours"). For the list of possible values, <a class="external" href="https://github.com/xoseperez/espurna/wiki/NTP#tz-variable">see our wiki entry.</a></span>
+                                    <span class="pure-form-message-inline">For the technical documentation, <a class="external" href="https://www.gnu.org/software/libc/manual/html_node/TZ-Variable.html">see libc tzset(3) manual page</a></span>
+                                    <datalist id="list:ntpTZ">
+                                        <option value="UTC0">No offset</option>
+                                        <option value="UTC-14"></option>
+                                        <option value="UTC-13"></option>
+                                        <option value="UTC-12"></option>
+                                        <option value="UTC-11"></option>
+                                        <option value="UTC-10"></option>
+                                        <option value="UTC-9"></option>
+                                        <option value="UTC-8"></option>
+                                        <option value="UTC-7"></option>
+                                        <option value="UTC-6"></option>
+                                        <option value="UTC-5"></option>
+                                        <option value="UTC-4"></option>
+                                        <option value="UTC-3"></option>
+                                        <option value="UTC-2"></option>
+                                        <option value="UTC-1"></option>
+                                        <option value="UTC1"></option>
+                                        <option value="UTC2"></option>
+                                        <option value="UTC3"></option>
+                                        <option value="UTC4"></option>
+                                        <option value="UTC5"></option>
+                                        <option value="UTC6"></option>
+                                        <option value="UTC7"></option>
+                                        <option value="UTC8"></option>
+                                        <option value="UTC9"></option>
+                                        <option value="UTC10"></option>
+                                        <option value="UTC11"></option>
+                                        <option value="UTC12"></option>
+                                    </datalist>
                                 </div>
 
                             </fieldset>
@@ -1520,10 +1554,10 @@
                                     Set IDX to 0 to disable notifications from that component.
                                 </span>
 
-                                <div id="dczRelays" class="settings-group" data-settings-target="dczRelay" ></div>
+                                <div id="dcz-relays" class="settings-group" data-settings-target="dczRelay" ></div>
 
                                 <!-- removeIf(!sensor) -->
-                                <div id="dczMagnitudes" class="settings-group" data-settings-target="dczMagnitude" ></div>
+                                <div id="dcz-magnitudes" class="settings-group" data-settings-target="dczMagnitude" ></div>
                                 <!-- endRemoveIf(!sensor) -->
                             </fieldset>
                         </div>
@@ -1630,10 +1664,10 @@
                                     Enter the field number to send each data to, 0 disable notifications from that component.
                                 </span>
 
-                                <div id="tspkRelays" class="settings-group" data-settings-target="tspkRelay" ></div>
+                                <div id="tspk-relays" class="settings-group" data-settings-target="tspkRelay" ></div>
 
                                 <!-- removeIf(!sensor) -->
-                                <div id="tspkMagnitudes" class="settings-group" data-settings-target="tspkMagnitude" ></div>
+                                <div id="tspk-magnitudes" class="settings-group" data-settings-target="tspkMagnitude" ></div>
                                 <!-- endRemoveIf(!sensor) -->
                             </fieldset>
                         </div>
@@ -1910,12 +1944,6 @@
                                 </div>
                             </fieldset>
 
-                            <fieldset>
-                                <legend>Units</legend>
-                                <div id="magnitude-units" class="pure-form-aligned settings-group">
-                                </div>
-                            </fieldset>
-
                             <fieldset class="module module-emon">
                                 <legend>Energy monitor</legend>
 
@@ -1927,6 +1955,39 @@
                                     <button type="button" name="emon-reset-energy" class="pure-button pure-input-1-2 button-simple-action">Set the energy count of all sensors to zero</button>
                                 </div>
 
+                            </fieldset>
+
+                            <fieldset class="maybe-hidden">
+                                <legend>Units</legend>
+                                <div id="magnitude-units" class="pure-form-aligned settings-group">
+                                </div>
+                            </fieldset>
+
+                            <fieldset class="maybe-hidden">
+                                <legend>Corrections</legend>
+                                <div id="magnitude-corrections" class="pure-form-aligned settings-group">
+                                </div>
+                            </fieldset>
+
+                            <fieldset>
+                                <legend>Zero threshold</legend>
+                                <span class="pure-form-message">Report only when the value is above this threshold. Set to <code>NaN</code> (default) to disable.</span>
+                                <div id="magnitude-zero-thresholds" class="pure-form-aligned settings-group">
+                                </div>
+                            </fieldset>
+
+                            <fieldset>
+                                <legend>Report - minimum delta</legend>
+                                <span class="pure-form-message">Report only when the value changed at least this much (absolute difference)</span>
+                                <div id="magnitude-min-deltas" class="pure-form-aligned settings-group">
+                                </div>
+                            </fieldset>
+
+                            <fieldset>
+                                <legend>Report - reading maximum delta</legend>
+                                <span class="pure-form-message">Try to report on every reading, when the value changes at least this much (absolute difference)</span>
+                                <div id="magnitude-max-deltas" class="pure-form-aligned settings-group">
+                                </div>
                             </fieldset>
 
                         </div>
@@ -2030,6 +2091,20 @@
         </div> <!-- layout -->
 
         <!-- Templates -->
+
+        <template id="template-text-input">
+            <div class="pure-control-group">
+                <label></label>
+                <input type="text">
+            </div>
+        </template>
+
+        <template id="template-number-input">
+            <div class="pure-control-group">
+                <label></label>
+                <input type="number" min="0">
+            </div>
+        </template>
 
         <template id="template-led-config" >
             <div class="pure-form pure-form-aligned">
@@ -2327,37 +2402,16 @@
                 <span class="pure-form-message-inline emon-expected-pwrP">In Watts (W). Calibrate your sensor connecting a pure resistive load (like a bulb) and enter here its nominal power or use a multimeter.</span>
                 <span class="pure-form-message-inline emon-expected-volt">In Volts (V). Enter your the nominal AC voltage for your household or facility, or use multimeter to get this value.</span>
                 <span class="pure-form-message-inline emon-expected-curr">In Amperes (A). If you are using a pure resistive load like a bulb, this will be the ratio between the two previous values, i.e. power / voltage. You can also use a current clamp around one of the power wires to get this value.</span>
-                <span class="pure-form-message-inline emon-expected-ene"></span>
             </div>
         </template>
 
-        <template id="template-emon-ratios">
-            <div class="pure-control-group">
-                <label></label>
-                <input type="text">
-            </div>
-        </template>
         <!-- endRemoveIf(!sensor) -->
-
-        <template id="template-dcz-relay">
-            <div class="pure-control-group">
-                <label></label>
-                <input name="dczRelayIdx" type="number" min="0">
-            </div>
-        </template>
-
-        <template id="template-tspk-relay" class="template">
-            <div class="pure-control-group">
-                <label></label>
-                <input name="tspkRelay" type="number" min="0">
-            </div>
-        </template>
 
         <!-- removeIf(!light) -->
         <template id="template-channel-control">
-            <div class="pure-control-group">
+            <div>
                 <label>Channel #</label>
-                <input type="range" min="0" max="255" class="slider channels pure-input-2-3">
+                <input type="range" min="0" max="255" class="slider pure-input-2-3">
                 <span class="slider"></span>
             </div>
         </template>
@@ -2372,9 +2426,11 @@
 
         <template id="template-mireds-control">
             <div class="pure-control-group">
-                <label>Mireds (Cold &harr; Warm)</label>
-                <input type="range" min="153" max="500" class="slider pure-input-2-3" id="mireds">
+                <label>Mireds</label>
+                <input type="range" class="slider pure-input-2-3" id="mireds" list="mired-range">
                 <span class="slider mireds"></span>
+                <datalist id="mired-range">
+                </datalist>
             </div>
         </template>
         <!-- endRemoveIf(!light) -->

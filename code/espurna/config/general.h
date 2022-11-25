@@ -9,10 +9,6 @@
 // GENERAL
 //------------------------------------------------------------------------------
 
-#ifndef DEVICE_NAME
-#define DEVICE_NAME             MANUFACTURER "_" DEVICE     // Concatenate both to get a unique device name
-#endif
-
 // When defined, ADMIN_PASS must be 8..63 printable ASCII characters. See:
 // https://en.wikipedia.org/wiki/Wi-Fi_Protected_Access#Target_users_(authentication_key_distribution)
 // https://github.com/xoseperez/espurna/issues/1151
@@ -63,33 +59,13 @@
 #define DEBUG_SERIAL_SUPPORT    1               // Enable serial debug log
 #endif
 
-#ifndef DEBUG_PORT
-#define DEBUG_PORT              Serial          // Default debugging port
-#endif
-
-#ifndef SERIAL_BAUDRATE
-#define SERIAL_BAUDRATE         115200          // Default baudrate
+#ifndef DEBUG_SERIAL_PORT
+#define DEBUG_SERIAL_PORT       1               // Default debugging port
 #endif
 
 #ifndef DEBUG_ADD_TIMESTAMP
 #define DEBUG_ADD_TIMESTAMP     1               // Add timestamp to debug messages
                                                 // (in millis overflowing every 1000 seconds)
-#endif
-
-// Second serial port (used for RX)
-
-#ifndef SERIAL_RX_ENABLED
-#define SERIAL_RX_ENABLED       0               // Secondary serial port for RX
-#endif
-
-#ifndef SERIAL_RX_PORT
-#define SERIAL_RX_PORT          Serial          // This setting is usually defined
-                                                // in the hardware.h file for those
-                                                // boards that require it
-#endif
-
-#ifndef SERIAL_RX_BAUDRATE
-#define SERIAL_RX_BAUDRATE      115200          // Default baudrate
 #endif
 
 //------------------------------------------------------------------------------
@@ -167,15 +143,6 @@
 #define TELNET_MAX_CLIENTS      1               // Max number of concurrent telnet clients
 #endif
 
-#ifndef TELNET_SERVER
-#define TELNET_SERVER           TELNET_SERVER_ASYNC // Can be either TELNET_SERVER_ASYNC (using ESPAsyncTCP) or TELNET_SERVER_WIFISERVER (using WiFiServer)
-#endif
-
-#ifndef TELNET_SERVER_ASYNC_BUFFERED
-#define TELNET_SERVER_ASYNC_BUFFERED         1  // Enable buffered output for telnet server (+1Kb)
-                                                // Helps to avoid lost data with lwip2 TCP_MSS=536 option
-#endif
-
 // Enable this flag to add support for reverse telnet (+800 bytes)
 // This is useful to telnet to a device behind a NAT or firewall
 // To use this feature, start a listen server on a publicly reachable host with e.g. "ncat -vlp <port>" and use the MQTT reverse telnet command to connect
@@ -188,11 +155,21 @@
 //------------------------------------------------------------------------------
 
 #ifndef TERMINAL_SUPPORT
-#define TERMINAL_SUPPORT         1              // Enable terminal commands (0.97Kb)
+#define TERMINAL_SUPPORT                1       // Enable terminal commands (0.97Kb)
 #endif
 
-#ifndef TERMINAL_SHARED_BUFFER_SIZE
-#define TERMINAL_SHARED_BUFFER_SIZE     128     // Maximum size for command line, shared by the WebUI, Telnet and Serial
+#ifndef TERMINAL_SERIAL_SUPPORT
+#define TERMINAL_SERIAL_SUPPORT         1       // Enable terminal over UART
+#endif
+
+#ifndef TERMINAL_SERIAL_PORT
+#define TERMINAL_SERIAL_PORT            1       // Use specific port configured as UART#_PORT
+                                                // (first port by default)
+#endif
+
+#ifndef TERMINAL_SERIAL_BUFFER_SIZE
+#define TERMINAL_SERIAL_BUFFER_SIZE     128     // Maximum size for command line received from serial input
+                                                // (defaults to the size of the peripheral RX buffer)
 #endif
 
 #ifndef TERMINAL_MQTT_SUPPORT
@@ -222,7 +199,7 @@
 #endif
 
 #ifndef SYSTEM_CHECK_MAX
-#define SYSTEM_CHECK_MAX        5               // After this many crashes on boot
+#define SYSTEM_CHECK_MAX        3               // After this many crashes on boot
                                                 // the system is flagged as unstable
 #endif
 
@@ -392,9 +369,17 @@
 #define RELAY_PROVIDER_STM_SUPPORT      0
 #endif
 
+#ifndef RELAY_PROVIDER_STM_PORT
+#define RELAY_PROVIDER_STM_PORT         1
+#endif
+
 // Sonoff Dual, using serial protocol
 #ifndef RELAY_PROVIDER_DUAL_SUPPORT
 #define RELAY_PROVIDER_DUAL_SUPPORT     0
+#endif
+
+#ifndef RELAY_PROVIDER_DUAL_PORT
+#define RELAY_PROVIDER_DUAL_PORT        1
 #endif
 
 // Default boot mode: 0 means OFF, 1 ON and 2 whatever was before
@@ -887,38 +872,54 @@
 #endif
 
 // -----------------------------------------------------------------------------
+// UART
+// -----------------------------------------------------------------------------
+
+#ifndef UART_SUPPORT
+#define UART_SUPPORT                1
+#endif
+
+#ifndef UART_SOFTWARE_SUPPORT
+#define UART_SOFTWARE_SUPPORT       0           // (optional) allows to set TX and RX pins
+                                                // to values other than just 1, 2, 3, 13 or 15
+                                                // which by default use hardware UART
+#endif
+
+// -----------------------------------------------------------------------------
 // UART <-> MQTT
 // -----------------------------------------------------------------------------
 
 #ifndef UART_MQTT_SUPPORT
-#define UART_MQTT_SUPPORT           0           // No support by default
+#define UART_MQTT_SUPPORT           0           // Not enabled by default
 #endif
 
-#ifndef UART_MQTT_USE_SOFT
-#define UART_MQTT_USE_SOFT          0           // Use SoftwareSerial
+#ifndef UART_MQTT_PORT
+#define UART_MQTT_PORT              1
 #endif
 
-#ifndef UART_MQTT_HW_PORT
-#define UART_MQTT_HW_PORT           Serial      // Hardware serial port (if UART_MQTT_USE_SOFT == 0)
+#ifndef UART_MQTT_BUFFER_SIZE
+#define UART_MQTT_BUFFER_SIZE       128         // Buffen up to N bytes when reading.
+                                                // If buffer fills up before we are able to send, old data gets discarded
 #endif
 
-#ifndef UART_MQTT_RX_PIN
-#define UART_MQTT_RX_PIN            4           // RX PIN (if UART_MQTT_USE_SOFT == 1)
+#ifndef UART_MQTT_TERMINATE_OUT
+#define UART_MQTT_TERMINATE_OUT     '\n'        // Write this byte after every received payload
+                                                // Set to `\0` to disable
 #endif
 
-#ifndef UART_MQTT_TX_PIN
-#define UART_MQTT_TX_PIN            5           // TX PIN (if UART_MQTT_USE_SOFT == 1)
+#ifndef UART_MQTT_TERMINATE_IN
+#define UART_MQTT_TERMINATE_IN      '\n'        // Read and buffer serial until this byte is found
+                                                // Set to `\0` to disable; instead, data will be sent periodically (as soon as it is read)
 #endif
 
-#ifndef UART_MQTT_BAUDRATE
-#define UART_MQTT_BAUDRATE          115200      // Serial speed
+#ifndef UART_MQTT_ENCODE
+#define UART_MQTT_ENCODE            0           // Data read from serial will be sent as HEX strings
+                                                // (e.g. for binary protocols; 2char per 1byte)
 #endif
 
-#ifndef UART_MQTT_TERMINATION
-#define UART_MQTT_TERMINATION      '\n'         // Termination character
+#ifndef UART_MQTT_DECODE
+#define UART_MQTT_DECODE            0           // MQTT payload received will be converted from HEX before writing to serial
 #endif
-
-#define UART_MQTT_BUFFER_SIZE       100         // UART buffer size
 
 // -----------------------------------------------------------------------------
 // MQTT
@@ -946,14 +947,8 @@
 //
 // Current version of MQTT_LIBRARY_ASYNCMQTTCLIENT only supports SECURE_CLIENT_AXTLS
 //
-// It is recommended to use WEB_SUPPORT=0 with either SECURE_CLIENT option, as there are miscellaneous problems when using them simultaneously
-// (although, things might've improved, and I'd encourage to check whether this is true or not)
-//
-// When using MQTT_LIBRARY_PUBSUBCLIENT or MQTT_LIBRARY_ARDUINOMQTT, you will have to disable every module that uses ESPAsyncTCP:
-// ALEXA_SUPPORT=0, INFLUXDB_SUPPORT=0, TELNET_SUPPORT=0, THINGSPEAK_SUPPORT=0, DEBUG_TELNET_SUPPORT=0 and WEB_SUPPORT=0
-// Or, use "sync" versions instead (note that not every module has this option):
-// THINGSPEAK_USE_ASYNC=0, TELNET_SERVER=TELNET_SERVER_WIFISERVER
-//
+// It is recommended to use as little modules as possible with SECURE_CLIENT option, as it requires a large amount
+// of pre-allocated RAM. Even in MFLN mode, it will still require at least 16KiB to prepare input buffer.
 // See SECURE_CLIENT_CHECK for all possible connection verification options.
 //
 // The simpliest way to verify SSL connection is to use fingerprinting.
@@ -1019,6 +1014,8 @@
 
 #ifndef MQTT_QOS
 #define MQTT_QOS                    0               // MQTT QoS value for all messages
+                                                    // ! Neither MQTT library supports QoS > 0 properly at this time.
+                                                    // ! PUB ACKs checks, re-publishing, etc. is missing
 #endif
 
 #ifndef MQTT_KEEPALIVE
@@ -1139,26 +1136,6 @@
 #define LIGHT_SAVE_DELAY        5000       // Persist channel & brightness values after the specified number of ms
 #endif
 
-#ifndef LIGHT_MIN_PWM
-#define LIGHT_MIN_PWM           0
-#endif
-
-#ifndef LIGHT_MAX_PWM
-
-#if LIGHT_PROVIDER == LIGHT_PROVIDER_MY92XX
-#define LIGHT_MAX_PWM           255
-#elif LIGHT_PROVIDER == LIGHT_PROVIDER_DIMMER
-#define LIGHT_MAX_PWM           10000        // 10000 * 200ns => 2 kHz
-#else
-#define LIGHT_MAX_PWM           0
-#endif
-
-#endif // LIGHT_MAX_PWM
-
-#ifndef LIGHT_LIMIT_PWM
-#define LIGHT_LIMIT_PWM         LIGHT_MAX_PWM   // Limit PWM to this value (prevent 100% power)
-#endif
-
 #ifndef LIGHT_MIN_VALUE
 #define LIGHT_MIN_VALUE         0           // Minimum light value
 #endif
@@ -1178,7 +1155,7 @@
 // Default mireds & kelvin to the Philips Hue limits
 // https://developers.meethue.com/documentation/core-concepts
 //
-// Home Assistant also uses these, see Light::min_mireds, Light::max_mireds
+// Home Assistant also uses these, see espurna::light::{min,max}_mireds
 // https://github.com/home-assistant/home-assistant/blob/dev/homeassistant/components/light/__init__.py
 
 // Used when LIGHT_USE_WHITE AND LIGHT_USE_CCT is 1 - (1000000/Kelvin = MiReds)
@@ -1372,7 +1349,7 @@
 #endif
 
 #ifndef THINGSPEAK_MIN_INTERVAL
-#define THINGSPEAK_MIN_INTERVAL     15000           // Minimum interval between POSTs (ms)
+#define THINGSPEAK_MIN_INTERVAL     15000           // Minimum interval between POSTs (milliseconds)
 #endif
 
 #ifndef THINGSPEAK_FIELDS
@@ -1494,8 +1471,12 @@
 #define RFB_PROVIDER                RFB_PROVIDER_RCSWITCH
 #endif
 
+#ifndef RFB_PORT
+#define RFB_PORT                    1               // If EFM is enabled, use this UART port 
+#endif
+
 #ifndef RFB_RX_PIN
-#define RFB_RX_PIN                  GPIO_NONE
+#define RFB_RX_PIN                  GPIO_NONE       // If RCSWITCH is enabled, use these pins
 #endif
 
 #ifndef RFB_TX_PIN
@@ -1715,8 +1696,8 @@
 #define TUYA_SUPPORT                0
 #endif
 
-#ifndef TUYA_SERIAL
-#define TUYA_SERIAL                 Serial
+#ifndef TUYA_PORT
+#define TUYA_PORT                   1
 #endif
 
 #ifndef TUYA_FILTER_ENABLED
@@ -1749,6 +1730,55 @@
 
 #ifndef IFAN_SUPPORT
 #define IFAN_SUPPORT                0
+#endif
+
+//--------------------------------------------------------------------------------
+// PWM driver support
+//--------------------------------------------------------------------------------
+
+#ifndef PWM_SUPPORT
+#define PWM_SUPPORT                 0
+#endif
+
+#ifndef PWM_PROVIDER
+#define PWM_PROVIDER                PWM_PROVIDER_GENERIC // Currently, two software PWM providers are supported
+                                                         // - PWM_PROVIDER_GENERIC (default)
+                                                         // - PWM_PROVIDER_ARDUINO
+#endif
+
+#ifndef PWM_FREQUENCY
+#define PWM_FREQUENCY               1000 // (Hz)
+#endif
+
+#ifndef PWM_RESOLUTION
+#define PWM_RESOLUTION              10   // (bits)
+                                         // Range of raw values accepted by the driver
+                                         // 0...1023 by default
+#endif
+
+#ifndef PWM_DUTY_LIMIT
+#define PWM_DUTY_LIMIT              100  // (percentage)
+                                         // Clamp duty value, prevent 100% power
+#endif
+
+// =============================================================================
+// Curtain hardware support
+// =============================================================================
+
+#ifndef KINGART_CURTAIN_SUPPORT
+#define KINGART_CURTAIN_SUPPORT      0
+#endif
+
+#ifndef KINGART_CURTAIN_PORT
+#define KINGART_CURTAIN_PORT         1
+#endif
+
+#ifndef KINGART_CURTAIN_BUFFER_SIZE
+#define KINGART_CURTAIN_BUFFER_SIZE  128
+#endif
+
+#ifndef KINGART_CURTAIN_TERMINATION
+#define KINGART_CURTAIN_TERMINATION  '\e'        // Termination character after each message
 #endif
 
 // =============================================================================

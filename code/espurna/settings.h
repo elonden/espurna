@@ -30,7 +30,12 @@ void resetSettings();
 void saveSettings();
 void autosaveSettings();
 
+namespace espurna {
 namespace settings {
+
+// TODO: multi-byte access
+// {blob} read(size_t)
+// void write(size_t, {blob})
 
 class EepromStorage {
 public:
@@ -49,16 +54,22 @@ public:
 
 using kvs_type = embedis::KeyValueStore<EepromStorage>;
 
-namespace internal {
+namespace traits {
 
-template <typename T>
+template<typename T>
 using is_arduino_string = std::is_same<String, typename std::decay<T>::type>;
 
-template <typename T>
+template<typename T>
 using enable_if_arduino_string = std::enable_if<is_arduino_string<T>::value>;
 
-template <typename T>
+template<typename T>
 using enable_if_not_arduino_string = std::enable_if<!is_arduino_string<T>::value>;
+
+} // namespace types
+
+// TODO: allow StringView as key and value
+// does not work right now because embedis api only works on things with char access
+// (won't work on our flash strings, since those can only be accessed via aligned reads)
 
 ValueResult get(const String& key);
 bool set(const String& key, const String& value);
@@ -74,10 +85,12 @@ size_t size();
 using KeyValueResultCallback = std::function<void(settings::kvs_type::KeyValueResult&&)>;
 void foreach(KeyValueResultCallback&&);
 
-using PrefixResultCallback = std::function<void(settings::StringView prefix, String key, const kvs_type::ReadResult& value)>;
+using PrefixResultCallback = std::function<void(StringView prefix, String key, const kvs_type::ReadResult& value)>;
 void foreach_prefix(PrefixResultCallback&&, settings::query::StringViewIterator);
 
 // --------------------------------------------------------------------------
+
+namespace internal {
 
 template <typename T>
 T convert(const String& value);
@@ -160,7 +173,7 @@ inline String serialize(double value) {
 template <typename Container, typename T>
 T convert(const Container& options, const String& value, T defaultValue) {
     if (value.length()) {
-        using ::settings::options::Enumeration;
+        using espurna::settings::options::Enumeration;
         using UnderlyingType = typename Enumeration<T>::UnderlyingType;
         typename Enumeration<T>::Numeric numeric;
         numeric.check(value, convert<UnderlyingType>);
@@ -192,11 +205,7 @@ String serialize(const Container& options, T value) {
 }
 
 } // namespace internal
-} // namespace settings
 
-// --------------------------------------------------------------------------
-
-namespace settings {
 namespace query {
 
 using Check = bool(*)(StringView key);
@@ -209,9 +218,10 @@ struct Handler {
 
 } // namespace query
 } // namespace settings
+} // namespace espurna
 
-void settingsRegisterQueryHandler(settings::query::Handler);
-String settingsQuery(::settings::StringView key);
+void settingsRegisterQueryHandler(espurna::settings::query::Handler);
+String settingsQuery(espurna::StringView key);
 
 // --------------------------------------------------------------------------
 
@@ -219,57 +229,63 @@ void moveSetting(const String& from, const String& to);
 void moveSetting(const String& from, const String& to, size_t index);
 void moveSettings(const String& from, const String& to);
 
-template <typename T, typename = typename settings::internal::enable_if_not_arduino_string<T>::type>
-T getSetting(const SettingsKey& key, T defaultValue) {
-    auto result = settings::internal::get(key.value());
-    if (result) {
-        return settings::internal::convert<T>(result.ref());
-    }
-    return defaultValue;
-}
-
 String getSetting(const char* key);
 String getSetting(const String& key);
 String getSetting(const __FlashStringHelper* key);
 
-String getSetting(const SettingsKey& key);
-String getSetting(const SettingsKey& key, const char* defaultValue);
-String getSetting(const SettingsKey& key, const __FlashStringHelper* defaultValue);
-String getSetting(const SettingsKey& key, const String& defaultValue);
-String getSetting(const SettingsKey& key, const String& defaultValue);
-String getSetting(const SettingsKey& key, String&& defaultValue);
+String getSetting(const espurna::settings::Key& key);
+String getSetting(const espurna::settings::Key& key, const char* defaultValue);
+String getSetting(const espurna::settings::Key& key, const __FlashStringHelper* defaultValue);
+String getSetting(const espurna::settings::Key& key, const String& defaultValue);
+String getSetting(const espurna::settings::Key& key, String&& defaultValue);
+String getSetting(const espurna::settings::Key& key, espurna::StringView defaultValue);
 
-template<typename T, typename = typename settings::internal::enable_if_arduino_string<T>::type>
-bool setSetting(const SettingsKey& key, T&& value) {
-    return settings::internal::set(key.value(), value);
+template <typename T, typename = typename espurna::settings::traits::enable_if_not_arduino_string<T>::type>
+T getSetting(const espurna::settings::Key& key, T defaultValue) {
+    auto result = espurna::settings::get(key.value());
+    if (result) {
+        return espurna::settings::internal::convert<T>(result.ref());
+    }
+    return defaultValue;
 }
 
-template<typename T, typename = typename settings::internal::enable_if_not_arduino_string<T>::type>
-bool setSetting(const SettingsKey& key, T value) {
+template <typename T, typename = typename espurna::settings::traits::enable_if_arduino_string<T>::type>
+bool setSetting(const espurna::settings::Key& key, T&& value) {
+    return espurna::settings::set(key.value(), value);
+}
+
+template <typename T, typename = typename espurna::settings::traits::enable_if_not_arduino_string<T>::type>
+bool setSetting(const espurna::settings::Key& key, T value) {
     return setSetting(key, String(value));
 }
 
 bool delSetting(const char* key);
 bool delSetting(const String& key);
 bool delSetting(const __FlashStringHelper* key);
-bool delSetting(const SettingsKey& key);
+bool delSetting(const espurna::settings::Key& key);
 
-void delSettingPrefix(settings::query::StringViewIterator);
+void delSettingPrefix(espurna::settings::query::StringViewIterator);
 
 bool hasSetting(const char* key);
 bool hasSetting(const String& key);
 bool hasSetting(const __FlashStringHelper* key);
-bool hasSetting(const SettingsKey& key);
+bool hasSetting(const espurna::settings::Key& key);
 
-void settingsDump(const ::terminal::CommandContext&, const ::settings::query::Setting* begin, const ::settings::query::Setting* end);
+void settingsDump(const espurna::terminal::CommandContext&,
+    const espurna::settings::query::Setting* begin,
+    const espurna::settings::query::Setting* end);
+
 template <typename T>
-void settingsDump(const ::terminal::CommandContext& ctx, const T& settings) {
+void settingsDump(const espurna::terminal::CommandContext& ctx, const T& settings) {
     settingsDump(ctx, std::begin(settings), std::end(settings));
 }
 
-void settingsDump(const ::terminal::CommandContext&, const ::settings::query::IndexedSetting* begin, const ::settings::query::IndexedSetting* end, size_t index);
+void settingsDump(const espurna::terminal::CommandContext&,
+    const espurna::settings::query::IndexedSetting* begin,
+    const espurna::settings::query::IndexedSetting* end, size_t index);
+
 template <typename T>
-void settingsDump(const ::terminal::CommandContext& ctx, const T& settings, size_t index) {
+void settingsDump(const espurna::terminal::CommandContext& ctx, const T& settings, size_t index) {
     settingsDump(ctx, std::begin(settings), std::end(settings), index);
 }
 
@@ -278,7 +294,7 @@ bool settingsRestoreJson(char* json_string, size_t json_buffer_size = 1024);
 bool settingsRestoreJson(JsonObject& data);
 
 size_t settingsKeyCount();
-std::vector<String> settingsKeys();
+espurna::settings::Keys settingsKeys();
 
 size_t settingsSize();
 
@@ -298,7 +314,7 @@ void migrate();
 // Deprecated implementation
 // -----------------------------------------------------------------------------
 
-template <typename T>
+template<typename T>
 String getSetting(const String& key, unsigned char index, T defaultValue)
 __attribute__((deprecated("getSetting({key, index}, default) should be used instead")));
 

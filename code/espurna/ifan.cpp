@@ -24,18 +24,17 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 // TODO: in case there are more FANs, move externally
 
-namespace ifan {
+namespace espurna {
 namespace settings {
 namespace options {
 namespace {
 
-alignas(4) static constexpr char Off[] PROGMEM = "off";
-alignas(4) static constexpr char Low[] PROGMEM = "low";
-alignas(4) static constexpr char Medium[] PROGMEM = "medium";
-alignas(4) static constexpr char High[] PROGMEM = "high";
+PROGMEM_STRING(Off, "off");
+PROGMEM_STRING(Low, "low");
+PROGMEM_STRING(Medium, "medium");
+PROGMEM_STRING(High, "high");
 
-using ::settings::options::Enumeration;
-static constexpr std::array<Enumeration<FanSpeed>, 4> FanSpeedOptions PROGMEM {
+static constexpr std::array<espurna::settings::options::Enumeration<FanSpeed>, 4> FanSpeedOptions PROGMEM {
     {{FanSpeed::Off, Off},
      {FanSpeed::Low, Low},
      {FanSpeed::Medium, Medium},
@@ -44,24 +43,16 @@ static constexpr std::array<Enumeration<FanSpeed>, 4> FanSpeedOptions PROGMEM {
 
 } // namespace
 } // namespace options
-} // namespace settings
-} // namespace ifan
 
-namespace settings {
 namespace internal {
-namespace {
-
-using ifan::settings::options::FanSpeedOptions;
-
-} // namespace
 
 template <>
 FanSpeed convert(const String& value) {
-    return convert(FanSpeedOptions, value, FanSpeed::Off);
+    return convert(options::FanSpeedOptions, value, FanSpeed::Off);
 }
 
 String serialize(FanSpeed speed) {
-    return serialize(FanSpeedOptions, speed);
+    return serialize(options::FanSpeedOptions, speed);
 }
 
 } // namespace internal
@@ -71,14 +62,14 @@ namespace ifan02 {
 namespace {
 
 FanSpeed payloadToSpeed(const String& value) {
-    return ::settings::internal::convert<FanSpeed>(value);
+    return espurna::settings::internal::convert<FanSpeed>(value);
 }
 
 String speedToPayload(FanSpeed speed) {
-    return ::settings::internal::serialize(speed);
+    return espurna::settings::internal::serialize(speed);
 }
 
-constexpr unsigned long DefaultSaveDelay { 1000ul };
+static constexpr auto DefaultSaveDelay = duration::Seconds{ 10 };
 
 // We expect to write a specific 'mask' via GPIO LOW & HIGH to set the speed
 // Sync up with the relay and write it on ON / OFF status events
@@ -105,25 +96,21 @@ constexpr int controlPin() {
 }
 
 struct Config {
-    Config() = default;
-    explicit Config(unsigned long save_, FanSpeed speed_) :
-        save(save_),
-        speed(speed_)
-    {}
-
-    unsigned long save { DefaultSaveDelay };
-    FanSpeed speed { FanSpeed::Off };
-    StatePins state_pins;
+    duration::Seconds save;
+    FanSpeed speed;
 };
 
 Config readSettings() {
-    return Config(
-        getSetting("fanSave", DefaultSaveDelay),
-        getSetting("fanSpeed", FanSpeed::Medium)
-    );
+    return Config{
+        .save = getSetting("fanSave", DefaultSaveDelay),
+        .speed = getSetting("fanSpeed", FanSpeed::Medium)};
 }
 
-Config config;
+StatePins state_pins;
+Config config {
+    .save = DefaultSaveDelay,
+    .speed = FanSpeed::Medium,
+};
 
 void configure() {
     config = readSettings();
@@ -136,10 +123,10 @@ void report(FanSpeed speed [[gnu::unused]]) {
 }
 
 void save(FanSpeed speed) {
-    static Ticker ticker;
+    static timer::SystemTimer ticker;
     config.speed = speed;
-    ticker.once_ms(config.save, []() {
-        auto value = speedToPayload(config.speed);
+    ticker.once(config.save, []() {
+        const auto value = speedToPayload(config.speed);
         setSetting("fanSpeed", value);
         DEBUG_MSG_P(PSTR("[IFAN] Saved speed setting \"%s\"\n"), value.c_str());
     });
@@ -226,13 +213,13 @@ void updateSpeed(FanSpeed speed) {
     updateSpeed(config, speed);
 }
 
-void updateSpeedFromPayload(const String& payload) {
-    updateSpeed(payloadToSpeed(payload));
+void updateSpeedFromPayload(StringView payload) {
+    updateSpeed(payloadToSpeed(payload.toString()));
 }
 
 #if MQTT_SUPPORT
 
-void onMqttEvent(unsigned int type, const char* topic, char* payload) {
+void onMqttEvent(unsigned int type, StringView topic, StringView payload) {
     switch (type) {
 
     case MQTT_CONNECT_EVENT:
@@ -254,9 +241,10 @@ void onMqttEvent(unsigned int type, const char* topic, char* payload) {
 
 class FanProvider : public RelayProviderBase {
 public:
-    explicit FanProvider(BasePinPtr&& pin, const Config& config, FanSpeedUpdate& callback) :
+    FanProvider(BasePinPtr&& pin, const Config& config, const StatePins& pins, FanSpeedUpdate& callback) :
         _pin(std::move(pin)),
-        _config(config)
+        _config(config),
+        _pins(pins)
     {
         callback = [this](FanSpeed speed) {
             change(speed);
@@ -274,8 +262,8 @@ public:
         auto state = stateFromSpeed(speed);
         DEBUG_MSG_P(PSTR("[IFAN] State mask: %s\n"), maskFromSpeed(speed));
 
-        for (size_t index = 0; index < _config.state_pins.size(); ++index) {
-            auto& pin = _config.state_pins[index].second;
+        for (size_t index = 0; index < _pins.size(); ++index) {
+            auto& pin = _pins[index].second;
             if (!pin) {
                 continue;
             }
@@ -291,22 +279,51 @@ public:
 private:
     BasePinPtr _pin;
     const Config& _config;
+    const StatePins& _pins;
+};
+
+#if TERMINAL_SUPPORT
+namespace terminal {
+
+PROGMEM_STRING(Speed, "SPEED");
+
+void speed(::terminal::CommandContext&& ctx) {
+    if (ctx.argv.size() == 2) {
+        updateSpeedFromPayload(ctx.argv[1]);
+    }
+
+    ctx.output.printf_P(PSTR("%s %s\n"),
+        (config.speed != FanSpeed::Off)
+            ? PSTR("speed")
+            : PSTR("fan is"),
+        speedToPayload(config.speed).c_str());
+    terminalOK(ctx);
+}
+
+static constexpr ::terminal::Command Commands[] PROGMEM {
+    {Speed, speed},
 };
 
 void setup() {
+    espurna::terminal::add(Commands);
+}
 
-    config.state_pins = setupStatePins();
-    if (!config.state_pins.size()) {
+} // namespace terminal
+#endif
+
+void setup() {
+    state_pins = setupStatePins();
+    if (!state_pins.size()) {
         return;
     }
 
     configure();
-
     espurnaRegisterReload(configure);
 
     auto relay_pin = gpioRegister(controlPin());
     if (relay_pin) {
-        auto provider = std::make_unique<FanProvider>(std::move(relay_pin), config, onFanSpeedUpdate);
+        auto provider = std::make_unique<FanProvider>(
+            std::move(relay_pin), config, state_pins, onFanSpeedUpdate);
         if (!relayAdd(std::move(provider))) {
             DEBUG_MSG_P(PSTR("[IFAN] Could not add relay provider for GPIO%d\n"), controlPin());
             gpioUnlock(controlPin());
@@ -331,33 +348,25 @@ void setup() {
 #endif
 
 #if TERMINAL_SUPPORT
-    terminalRegisterCommand(F("SPEED"), [](::terminal::CommandContext&& ctx) {
-        if (ctx.argv.size() == 2) {
-            updateSpeedFromPayload(ctx.argv[1]);
-        }
-
-        ctx.output.printf_P(PSTR("%s %s\n"),
-            (config.speed != FanSpeed::Off) ? "speed" : "fan is",
-            speedToPayload(config.speed).c_str());
-        terminalOK(ctx);
-    });
+    terminal::setup();
 #endif
 
 }
 
 } // namespace
-} // namespace ifan
+} // namespace ifan02
+} // namespace espurna
 
 FanSpeed fanSpeed() {
-    return ifan02::config.speed;
+    return espurna::ifan02::config.speed;
 }
 
 void fanSpeed(FanSpeed speed) {
-    ifan02::updateSpeed(FanSpeed::Low);
+    espurna::ifan02::updateSpeed(FanSpeed::Low);
 }
 
 void fanSetup() {
-    ifan02::setup();
+    espurna::ifan02::setup();
 }
 
 #endif // IFAN_SUPPORT

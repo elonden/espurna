@@ -21,7 +21,6 @@ Copyright (C) 2019-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 #include "system.h"
 #include "ws.h"
 
-#include "gpio_pin.h"
 #include "mcp23s08_pin.h"
 
 #include <bitset>
@@ -36,32 +35,32 @@ namespace settings {
 namespace keys {
 namespace {
 
-alignas(4) static constexpr char Gpio[] PROGMEM = "btnGpio";
-alignas(4) static constexpr char GpioType[] PROGMEM = "btnGpioType";
-alignas(4) static constexpr char Provider[] PROGMEM = "btnProv";
-alignas(4) static constexpr char Mode[] PROGMEM = "btnMode";
-alignas(4) static constexpr char DefaultValue[] PROGMEM = "btnDefVal";
-alignas(4) static constexpr char PinMode[] PROGMEM = "btnPinMode";
+PROGMEM_STRING(Gpio, "btnGpio");
+PROGMEM_STRING(GpioType, "btnGpioType");
+PROGMEM_STRING(Provider, "btnProv");
+PROGMEM_STRING(Mode, "btnMode");
+PROGMEM_STRING(DefaultValue, "btnDefVal");
+PROGMEM_STRING(PinMode, "btnPinMode");
 
-alignas(4) static constexpr char Release[] PROGMEM = "btnRlse";
-alignas(4) static constexpr char Press[] PROGMEM = "btnPress";
-alignas(4) static constexpr char Click[] PROGMEM = "btnClick";
-alignas(4) static constexpr char DoubleClick[] PROGMEM = "btnDclk";
-alignas(4) static constexpr char TripleClick[] PROGMEM = "btnTclk";
-alignas(4) static constexpr char LongClick[] PROGMEM = "btnLclk";
-alignas(4) static constexpr char LongLongClick[] PROGMEM = "btnLLclk";
+PROGMEM_STRING(Release, "btnRlse");
+PROGMEM_STRING(Press, "btnPress");
+PROGMEM_STRING(Click, "btnClick");
+PROGMEM_STRING(DoubleClick, "btnDclk");
+PROGMEM_STRING(TripleClick, "btnTclk");
+PROGMEM_STRING(LongClick, "btnLclk");
+PROGMEM_STRING(LongLongClick, "btnLLclk");
 
-alignas(4) static constexpr char DebounceDelay[] PROGMEM = "btnDebDel";
-alignas(4) static constexpr char LongClickDelay[] PROGMEM = "btnLclkDel";
-alignas(4) static constexpr char LongLongClickDelay[] PROGMEM = "btnLLclkDel";
-alignas(4) static constexpr char RepeatDelay[] PROGMEM = "btnRepDel";
+PROGMEM_STRING(DebounceDelay, "btnDebDel");
+PROGMEM_STRING(LongClickDelay, "btnLclkDel");
+PROGMEM_STRING(LongLongClickDelay, "btnLLclkDel");
+PROGMEM_STRING(RepeatDelay, "btnRepDel");
 
-alignas(4) static constexpr char Relay[] PROGMEM = "btnRelay";
+PROGMEM_STRING(Relay, "btnRelay");
 
-alignas(4) static constexpr char MqttSendAll[] PROGMEM = "btnMqttSendAll";
-alignas(4) static constexpr char MqttRetain[] PROGMEM = "btnMqttRetain";
+PROGMEM_STRING(MqttSendAll, "btnMqttSendAll");
+PROGMEM_STRING(MqttRetain, "btnMqttRetain");
 
-[[gnu::unused]] alignas(4) static constexpr char AnalogLevel[] PROGMEM = "btnLevel";
+[[gnu::unused]] PROGMEM_STRING(AnalogLevel, "btnLevel");
 
 } // namespace
 } // namespace keys
@@ -69,19 +68,19 @@ alignas(4) static constexpr char MqttRetain[] PROGMEM = "btnMqttRetain";
 namespace options {
 namespace {
 
-using ::settings::options::Enumeration;
+using espurna::settings::options::Enumeration;
 
-alignas(4) static constexpr char Switch[] PROGMEM = "switch";
-alignas(4) static constexpr char Pushbutton[] PROGMEM = "pushbutton";
+PROGMEM_STRING(Switch, "switch");
+PROGMEM_STRING(Pushbutton, "pushbutton");
 
 static constexpr std::array<Enumeration<debounce_event::types::Mode>, 2> DebounceEventMode PROGMEM {
     {{debounce_event::types::Mode::Switch, Switch},
      {debounce_event::types::Mode::Pushbutton, Pushbutton}}
 };
 
-alignas(4) static constexpr char Low[] PROGMEM = "low";
-alignas(4) static constexpr char High[] PROGMEM = "high";
-alignas(4) static constexpr char Initial[] PROGMEM = "initial";
+PROGMEM_STRING(Low, "low");
+PROGMEM_STRING(High, "high");
+PROGMEM_STRING(Initial, "initial");
 
 static constexpr std::array<Enumeration<debounce_event::types::PinValue>, 3> DebounceEventPinValue PROGMEM {
     {{debounce_event::types::PinValue::Low, Low},
@@ -89,9 +88,9 @@ static constexpr std::array<Enumeration<debounce_event::types::PinValue>, 3> Deb
      {debounce_event::types::PinValue::Initial, Initial}}
 };
 
-alignas(4) static constexpr char Input[] PROGMEM = "default";
-alignas(4) static constexpr char InputPullup[] PROGMEM = "pull-up";
-alignas(4) static constexpr char InputPulldown[] PROGMEM = "pull-down";
+PROGMEM_STRING(Input, "default");
+PROGMEM_STRING(InputPullup, "pull-up");
+PROGMEM_STRING(InputPulldown, "pull-down");
 
 static constexpr std::array<Enumeration<debounce_event::types::PinMode>, 3> DebounceEventPinMode PROGMEM {
     {{debounce_event::types::PinMode::Input, Input},
@@ -99,9 +98,9 @@ static constexpr std::array<Enumeration<debounce_event::types::PinMode>, 3> Debo
      {debounce_event::types::PinMode::InputPulldown, InputPulldown}}
 };
 
-alignas(4) static constexpr char None[] PROGMEM = "none";
-alignas(4) static constexpr char Gpio[] PROGMEM = "gpio";
-alignas(4) static constexpr char Analog[] PROGMEM = "analog";
+PROGMEM_STRING(None, "none");
+PROGMEM_STRING(Gpio, "gpio");
+PROGMEM_STRING(Analog, "analog");
 
 static constexpr std::array<Enumeration<ButtonProvider>, 3> ButtonProviderOptions PROGMEM {
     {{ButtonProvider::None, None},
@@ -109,24 +108,24 @@ static constexpr std::array<Enumeration<ButtonProvider>, 3> ButtonProviderOption
      {ButtonProvider::Analog, Analog}}
 };
 
-[[gnu::unused]] alignas(4) static constexpr char Toggle[] PROGMEM = "relay-toggle";
-[[gnu::unused]] alignas(4) static constexpr char On[] PROGMEM = "relay-on";
-[[gnu::unused]] alignas(4) static constexpr char Off[] PROGMEM = "relay-off";
+[[gnu::unused]] PROGMEM_STRING(Toggle, "relay-toggle");
+[[gnu::unused]] PROGMEM_STRING(On, "relay-on");
+[[gnu::unused]] PROGMEM_STRING(Off, "relay-off");
 
-alignas(4) static constexpr char AccessPoint[] PROGMEM = "wifi-ap";
-alignas(4) static constexpr char Reset[] PROGMEM = "reset";
-alignas(4) static constexpr char FactoryReset[] PROGMEM = "factory";
+PROGMEM_STRING(AccessPoint, "wifi-ap");
+PROGMEM_STRING(Reset, "reset");
+PROGMEM_STRING(FactoryReset, "factory");
 
-[[gnu::unused]] alignas(4) static constexpr char BrightnessIncrease[] PROGMEM = "bri-inc";
-[[gnu::unused]] alignas(4) static constexpr char BrightnessDecrease[] PROGMEM = "bri-dec";
+[[gnu::unused]] PROGMEM_STRING(BrightnessIncrease, "bri-inc");
+[[gnu::unused]] PROGMEM_STRING(BrightnessDecrease, "bri-dec");
 
-[[gnu::unused]] alignas(4) static constexpr char DisplayOn[] PROGMEM = "display-on";
+[[gnu::unused]] PROGMEM_STRING(DisplayOn, "display-on");
 
-alignas(4) static constexpr char Custom[] PROGMEM = "custom";
+PROGMEM_STRING(Custom, "custom");
 
-[[gnu::unused]] alignas(4) static constexpr char FanLow[] PROGMEM = "fan-low";
-[[gnu::unused]] alignas(4) static constexpr char FanMedium[] PROGMEM = "fan-medium";
-[[gnu::unused]] alignas(4) static constexpr char FanHigh[] PROGMEM = "fan-high";
+[[gnu::unused]] PROGMEM_STRING(FanLow, "fan-low");
+[[gnu::unused]] PROGMEM_STRING(FanMedium, "fan-medium");
+[[gnu::unused]] PROGMEM_STRING(FanHigh, "fan-high");
 
 static constexpr Enumeration<ButtonAction> ButtonActionOptions[] PROGMEM {
     {ButtonAction::None, None},
@@ -157,7 +156,6 @@ static constexpr Enumeration<ButtonAction> ButtonActionOptions[] PROGMEM {
 } // namespace query
 } // namespace settings
 } // namespace button
-} // namespace espurna
 
 namespace settings {
 namespace internal {
@@ -221,7 +219,6 @@ String serialize(::ButtonAction value) {
 
 // -----------------------------------------------------------------------------
 
-namespace espurna {
 namespace button {
 namespace internal {
 namespace {
@@ -568,16 +565,16 @@ namespace {
 
 template <typename T>
 T indexedThenGlobal(const String& prefix, size_t index, T defaultValue) {
-    const auto key = SettingsKey{prefix, index};
+    const auto key = espurna::settings::Key{prefix, index};
 
-    auto indexed = ::settings::internal::get(key.value());
+    const auto indexed = espurna::settings::get(key.value());
     if (indexed) {
-        return ::settings::internal::convert<T>(indexed.ref());
+        return espurna::settings::internal::convert<T>(indexed.ref());
     }
 
-    auto global = ::settings::internal::get(prefix);
+    const auto global = espurna::settings::get(prefix);
     if (global) {
-        return ::settings::internal::convert<T>(indexed.ref());
+        return espurna::settings::internal::convert<T>(indexed.ref());
     }
 
     return defaultValue;
@@ -689,7 +686,7 @@ namespace {
 
 #define ID_VALUE(NAME, FUNC)\
 String NAME (size_t id) {\
-    return ::settings::internal::serialize(FUNC(id));\
+    return espurna::settings::internal::serialize(FUNC(id));\
 }
 
 ID_VALUE(pin, settings::pin)
@@ -725,7 +722,7 @@ ID_VALUE(mqttRetain, settings::mqttRetain)
 
 namespace {
 
-static constexpr ::settings::query::IndexedSetting IndexedSettings[] PROGMEM {
+static constexpr espurna::settings::query::IndexedSetting IndexedSettings[] PROGMEM {
     {keys::Gpio, internal::pin},
     {keys::GpioType, internal::pinType},
     {keys::Provider, internal::provider},
@@ -751,13 +748,12 @@ static constexpr ::settings::query::IndexedSetting IndexedSettings[] PROGMEM {
 #endif
 };
 
-bool checkSamePrefix(::settings::StringView key) {
-    alignas(4) static constexpr char Prefix[] PROGMEM = "btn";
-    return ::settings::query::samePrefix(key, Prefix);
+bool checkSamePrefix(StringView key) {
+    return espurna::settings::query::samePrefix(key, STRING_VIEW("btn"));
 }
 
-String findValueFrom(::settings::StringView key) {
-    return ::settings::query::IndexedSetting::findValueFrom(
+String findValueFrom(StringView key) {
+    return espurna::settings::query::IndexedSetting::findValueFrom(
         button::internal::buttons.size(), IndexedSettings, key);
 }
 
@@ -771,6 +767,39 @@ void setup() {
 } // namespace
 } // namespace query
 } // namespace settings
+
+namespace terminal {
+
+void button(::terminal::CommandContext&& ctx) {
+    if (ctx.argv.size() == 2) {
+        size_t id;
+        if (!tryParseId(ctx.argv[1], buttonCount(), id)) {
+            terminalError(ctx, F("Invalid button ID"));
+            return;
+        }
+
+        settingsDump(ctx, espurna::button::settings::query::IndexedSettings, id);
+        terminalOK(ctx);
+        return;
+    }
+
+    size_t id { 0 };
+    for (const auto& button : espurna::button::internal::buttons) {
+        ctx.output.printf_P(
+            PSTR("button%u {%s}\n"), id++,
+            button.event_emitter
+                ? (button.event_emitter->pin()->description().c_str())
+                : PSTR("Virtual"));
+    }
+}
+
+PROGMEM_STRING(Button, "BUTTON");
+
+static constexpr ::terminal::Command Commands[] PROGMEM {
+    {Button, button},
+};
+
+} // namespace terminal
 } // namespace button
 } // namespace espurna
 
@@ -934,7 +963,7 @@ void _buttonRelayAction(size_t id, ButtonAction action) {
 namespace {
 
 void _buttonWebSocketOnVisible(JsonObject& root) {
-    wsPayloadModule(root, "btn");
+    wsPayloadModule(root, PSTR("btn"));
 }
 
 void _buttonWebSocketOnConnected(JsonObject& root) {
@@ -943,8 +972,8 @@ void _buttonWebSocketOnConnected(JsonObject& root) {
     }
 }
 
-bool _buttonWebSocketOnKeyCheck(const char * key, JsonVariant&) {
-    return (strncmp(key, "btn", 3) == 0);
+bool _buttonWebSocketOnKeyCheck(espurna::StringView key, const JsonVariant&) {
+    return espurna::button::settings::query::checkSamePrefix(key);
 }
 
 } // namespace
@@ -981,35 +1010,36 @@ namespace {
 
 #if DEBUG_SUPPORT || MQTT_SUPPORT
 
-String _buttonEventString(ButtonEvent event) {
-    const __FlashStringHelper* ptr = nullptr;
+const char* _buttonEventString(ButtonEvent event) {
+    const char* out = "none";
+
     switch (event) {
     case ButtonEvent::Pressed:
-        ptr = F("pressed");
+        out = PSTR("pressed");
         break;
     case ButtonEvent::Released:
-        ptr = F("released");
+        out = PSTR("released");
         break;
     case ButtonEvent::Click:
-        ptr = F("click");
+        out = PSTR("click");
         break;
     case ButtonEvent::DoubleClick:
-        ptr = F("double-click");
+        out = PSTR("double-click");
         break;
     case ButtonEvent::LongClick:
-        ptr = F("long-click");
+        out = PSTR("long-click");
         break;
     case ButtonEvent::LongLongClick:
-        ptr = F("looong-click");
+        out = PSTR("looong-click");
         break;
     case ButtonEvent::TripleClick:
-        ptr = F("triple-click");
+        out = PSTR("triple-click");
         break;
     case ButtonEvent::None:
-        ptr = F("none");
         break;
     }
-    return String(ptr);
+
+    return out;
 }
 
 #endif
@@ -1019,7 +1049,7 @@ String _buttonEventString(ButtonEvent event) {
 void buttonEvent(size_t id, ButtonEvent event) {
 
     DEBUG_MSG_P(PSTR("[BUTTON] Button #%u event %d (%s)\n"),
-        id, static_cast<int>(event), _buttonEventString(event).c_str()
+        id, static_cast<int>(event), _buttonEventString(event)
     );
 
     if (event == ButtonEvent::None) {
@@ -1035,7 +1065,7 @@ void buttonEvent(size_t id, ButtonEvent event) {
 
 #if MQTT_SUPPORT
     if ((action != ButtonAction::None) || _buttons_mqtt_send_all[id]) {
-        mqttSend(MQTT_TOPIC_BUTTON, id, _buttonEventString(event).c_str(), false, _buttons_mqtt_retain[id]);
+        mqttSend(MQTT_TOPIC_BUTTON, id, String(_buttonEventString(event)).c_str(), false, _buttons_mqtt_retain[id]);
     }
 #endif
 
@@ -1418,28 +1448,7 @@ void buttonSetup() {
     DEBUG_MSG_P(PSTR("[BUTTON] Number of buttons: %u\n"), count);
 
 #if TERMINAL_SUPPORT
-    terminalRegisterCommand(F("BUTTON"), [](::terminal::CommandContext&& ctx) {
-        if (ctx.argv.size() == 2) {
-            size_t id;
-            if (!tryParseId(ctx.argv[1].c_str(), buttonCount, id)) {
-                terminalError(ctx, F("Invalid button ID"));
-                return;
-            }
-
-            settingsDump(ctx, espurna::button::settings::query::IndexedSettings, id);
-            terminalOK(ctx);
-            return;
-        }
-
-        size_t id { 0 };
-        for (const auto& button : espurna::button::internal::buttons) {
-            ctx.output.printf_P(
-                PSTR("button%u {%s}\n"), id++,
-                button.event_emitter
-                    ? (button.event_emitter->pin()->description().c_str())
-                    : PSTR("Virtual"));
-        }
-    });
+    espurna::terminal::add(espurna::button::terminal::Commands);
 #endif
 
     if (count) {

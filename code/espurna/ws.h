@@ -20,7 +20,7 @@ Copyright (C) 2019 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 #include "ws_utils.h"
 
 // Generalized WS lifetime callbacks.
-// Each callback is kept as std::function, thus we can use complex objects, and not just basic function pointers.
+// Callback could either be a lambda or a plain function pointer
 //
 // Connection start:
 // - on_visible will be the very first message sent, callback data will be grouped together
@@ -32,8 +32,8 @@ Copyright (C) 2019 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 // - on_keycheck will be used to determine if we can handle specific settings keys
 
 using ws_on_send_callback_f = std::function<void(JsonObject& root)>;
-using ws_on_action_callback_f = std::function<void(uint32_t client_id, const char * action, JsonObject& data)>;
-using ws_on_keycheck_callback_f = std::function<bool(const char * key, JsonVariant& value)>;
+using ws_on_action_callback_f = std::function<void(uint32_t client_id, const char* action, JsonObject& data)>;
+using ws_on_keycheck_callback_f = std::function<bool(espurna::StringView key, const JsonVariant& value)>;
 
 // TODO: use iterators as inputs for Post(), avoid depending on vector / any specific container
 using ws_on_send_callback_list_t = std::vector<ws_on_send_callback_f>;
@@ -49,7 +49,7 @@ struct ws_callbacks_t {
     using on_action_f = void(*)(uint32_t, const char*, JsonObject&);
     ws_callbacks_t& onAction(on_action_f);
 
-    using on_keycheck_f = bool(*)(const char*, JsonVariant&);
+    using on_keycheck_f = bool(*)(espurna::StringView, const JsonVariant&);
     ws_callbacks_t& onKeyCheck(on_keycheck_f);
 
     ws_on_send_callback_list_t on_visible;
@@ -105,13 +105,19 @@ void wsSend(const char* data);
 // Check if any or specific client_id is connected
 // Server will try to set unique ID for each client
 
+struct WsClientInfo {
+    bool connected;
+    bool stalled;
+};
+
+WsClientInfo wsClientInfo(uint32_t client_id);
+
 bool wsConnected();
 bool wsConnected(uint32_t client_id);
 
 // Append module's name that webui can make it's widgets visible
 // (for the payload in `on_send` callback(s))
-
-void wsPayloadModule(JsonObject& root, const char* const name);
+void wsPayloadModule(JsonObject& root, const char* name);
 
 // Access to our module-specific lifetime callbacks.
 // Expected usage is through the on() methods

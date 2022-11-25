@@ -40,8 +40,6 @@ namespace tuya {
         return false;
     }
 
-    constexpr unsigned long SerialSpeed { 9600u };
-
     constexpr unsigned long DiscoveryTimeout { 1500u };
 
     constexpr unsigned long HeartbeatSlow { 9000u };
@@ -66,7 +64,7 @@ namespace tuya {
         String value;
     };
 
-    Transport tuyaSerial(TUYA_SERIAL);
+    Transport* tuyaSerial { nullptr };
     std::priority_queue<DataFrame> outputFrames;
 
     template <typename T>
@@ -429,19 +427,18 @@ error:
     }
 
     void processSerial(State& state) {
+        while (tuyaSerial->available()) {
 
-        while (tuyaSerial.available()) {
+            tuyaSerial->read();
 
-            tuyaSerial.read();
-
-            if (tuyaSerial.done()) {
-                processFrame(state, tuyaSerial);
-                tuyaSerial.reset();
+            if (tuyaSerial->done()) {
+                processFrame(state, *tuyaSerial);
+                tuyaSerial->reset();
             }
 
-            if (tuyaSerial.full()) {
-                tuyaSerial.rewind();
-                tuyaSerial.reset();
+            if (tuyaSerial->full()) {
+                tuyaSerial->rewind();
+                tuyaSerial->reset();
             }
         }
 
@@ -462,7 +459,7 @@ error:
             // flush serial buffer before transmitting anything
             // send fast heartbeat until mcu responds with something
             case State::INIT:
-                tuyaSerial.rewind();
+                tuyaSerial->rewind();
                 state = State::BOOT;
             case State::BOOT:
                 sendHeartbeat(Heartbeat::Boot);
@@ -509,10 +506,10 @@ error:
             }
         }
 
-        if (TUYA_SERIAL && !outputFrames.empty()) {
+        if (!outputFrames.empty()) {
             auto& frame = outputFrames.top();
             dataframeDebugSend("=>", frame);
-            tuyaSerial.write(frame.serialize());
+            tuyaSerial->write(frame.serialize());
             outputFrames.pop();
         }
 
@@ -577,7 +574,7 @@ error:
 
     void setupChannels() {
         bool done { false };
-        for (size_t id = 0; id < Light::ChannelsMax; ++id) {
+        for (size_t id = 0; id < espurna::light::ChannelsMax; ++id) {
             auto dp = getSetting({"tuyaChannel", id}, build::channelDpId(id));
             if (!dp) {
                 break;
@@ -606,40 +603,69 @@ error:
 
 #endif
 
-    void setup() {
+#if TERMINAL_SUPPORT
+    PROGMEM_STRING(TuyaShow, "TUYA.SHOW");
 
-        // Print all known DP associations
+    static void terminalShow(::terminal::CommandContext&& ctx) {
+        ctx.output.printf_P(PSTR("Product: %s\n"), product.length() ? product.c_str() : "(unknown)");
+
+        ctx.output.print(F("\nConfig:\n"));
+        for (auto& kv : config) {
+            ctx.output.printf_P(
+                PSTR("\"%s\" => \"%s\"\n"),
+                kv.key.c_str(), kv.value.c_str());
+        }
+
+        ctx.output.print(F("\nKnown DP(s):\n"));
+#if LIGHT_PROVIDER == LIGHT_PROVIDER_CUSTOM
+        if (channelStateId) {
+            ctx.output.printf_P(
+                PSTR("%u (bool) => lights state\n"),
+                channelStateId.id());
+        }
+        for (auto& entry : channelIds.map()) {
+            ctx.output.printf_P(
+                PSTR("%u (int) => %d (channel)\n"),
+                entry.dp_id, entry.local_id);
+        }
+#endif
+        for (auto& entry : switchIds.map()) {
+            ctx.output.printf_P(
+                PSTR("%u (bool) => %d (relay)\n"),
+                entry.dp_id, entry.local_id);
+        }
+    }
+
+    PROGMEM_STRING(TuyaSave, "TUYA.SAVE");
+
+    static void terminalSave(::terminal::CommandContext&& ctx) {
+        for (auto& kv : config) {
+            setSetting(kv.key, kv.value);
+        }
+    }
+
+    static constexpr ::terminal::Command TuyaCommands[] PROGMEM {
+        {TuyaShow, terminalShow},
+        {TuyaSave, terminalSave},
+    };
+
+    void terminalSetup() {
+        espurna::terminal::add(TuyaCommands);
+    }
+#endif
+
+    void setup() {
+        const auto port = uartPort(TUYA_PORT - 1);
+
+        // No point starting up when port is unusable
+        if (!port || (!port->tx || !port->rx)) {
+            return;
+        }
+
+        tuyaSerial = new Transport(*port->stream);
 
         #if TERMINAL_SUPPORT
-
-            terminalRegisterCommand(F("TUYA.SHOW"), [](::terminal::CommandContext&& ctx) {
-                ctx.output.printf_P(PSTR("Product: %s\n"), product.length() ? product.c_str() : "(unknown)");
-
-                ctx.output.print(F("\nConfig:\n"));
-                for (auto& kv : config) {
-                    ctx.output.printf_P(PSTR("\"%s\" => \"%s\"\n"), kv.key.c_str(), kv.value.c_str());
-                }
-
-                ctx.output.print(F("\nKnown DP(s):\n"));
-#if LIGHT_PROVIDER == LIGHT_PROVIDER_CUSTOM
-                if (channelStateId) {
-                    ctx.output.printf_P(PSTR("%u (bool) => lights state\n"), channelStateId.id());
-                }
-                for (auto& entry : channelIds.map()) {
-                    ctx.output.printf_P(PSTR("%u (int) => %d (channel)\n"), entry.dp_id, entry.local_id);
-                }
-#endif
-                for (auto& entry : switchIds.map()) {
-                    ctx.output.printf_P(PSTR("%u (bool) => %d (relay)\n"), entry.dp_id, entry.local_id);
-                }
-            });
-
-            terminalRegisterCommand(F("TUYA.SAVE"), [](::terminal::CommandContext&&) {
-                for (auto& kv : config) {
-                    setSetting(kv.key, kv.value);
-                }
-            });
-
+            tuya::terminalSetup();
         #endif
 
         // Print all IN and OUT messages
@@ -649,12 +675,15 @@ error:
         filter = getSetting("tuyaFilter", 1 == TUYA_FILTER_ENABLED);
 
         // Install main loop method and WiFiStatus ping (only works with specific mode)
-        TUYA_SERIAL.begin(SerialSpeed);
-
+        
         ::espurnaRegisterLoop(loop);
-        ::wifiRegister([](wifi::Event event) {
-            if ((event == wifi::Event::StationConnected) || (event == wifi::Event::StationDisconnected)) {
+        ::wifiRegister([](espurna::wifi::Event event) {
+            switch (event) {
+            case espurna::wifi::Event::StationConnected:
+            case espurna::wifi::Event::StationDisconnected:
                 sendWiFiStatus();
+            default:
+                break;
             }
         });
     }

@@ -23,12 +23,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "espurna.h"
 #include "main.h"
 
+#include <algorithm>
+#include <utility>
+
 // -----------------------------------------------------------------------------
 // GENERAL CALLBACKS
 // -----------------------------------------------------------------------------
 
 namespace espurna {
 namespace {
+
 namespace main {
 namespace build {
 
@@ -46,24 +50,35 @@ constexpr espurna::duration::Milliseconds loopDelay() {
 } // namespace build
 
 namespace settings {
+namespace keys {
+
+PROGMEM_STRING(LoopDelay, "loopDelay");
+
+} // namespace keys
 
 espurna::duration::Milliseconds loopDelay() {
-    return std::clamp(getSetting("loopDelay", build::loopDelay()), build::LoopDelayMin, build::LoopDelayMax);
+    return std::clamp(getSetting(keys::LoopDelay, build::loopDelay()), build::LoopDelayMin, build::LoopDelayMax);
 }
 
 } // namespace settings
 
 namespace internal {
 
-std::vector<LoopCallback> loop_callbacks;
-espurna::duration::Milliseconds loop_delay { build::LoopDelayMin };
-
 std::vector<LoopCallback> reload_callbacks;
 bool reload_flag { false };
 
+std::vector<LoopCallback> loop_callbacks;
+espurna::duration::Milliseconds loop_delay { build::LoopDelayMin };
+
+std::forward_list<Callback> once_callbacks;
+
 } // namespace internal
 
-bool reload() {
+void flag_reload() {
+    internal::reload_flag = true;
+}
+
+bool check_reload() {
     if (internal::reload_flag) {
         internal::reload_flag = false;
         return true;
@@ -72,16 +87,68 @@ bool reload() {
     return false;
 }
 
+void push_reload(ReloadCallback callback) {
+    internal::reload_callbacks.push_back(callback);
+}
+
+void push_loop(LoopCallback callback) {
+    internal::loop_callbacks.push_back(callback);
+}
+
+duration::Milliseconds loop_delay() {
+    return internal::loop_delay;
+}
+
+void loop_delay(duration::Milliseconds value) {
+    internal::loop_delay = value;
+}
+
+void push_once(Callback callback) {
+    internal::once_callbacks.push_front(std::move(callback));
+}
+
+void push_once_unique(Callback::Type callback) {
+    auto& callbacks = internal::once_callbacks;
+
+    auto it = std::find_if(
+        callbacks.begin(),
+        callbacks.end(),
+        [&](const Callback& other) {
+            return other == callback;
+        });
+
+    if ((it != callbacks.begin()) && (it != callbacks.end())) {
+        std::swap(*callbacks.begin(), *it);
+        return;
+    }
+
+    push_once(Callback(callback));
+}
+
 void loop() {
     // Reload config before running any callbacks
-    if (reload()) {
+    if (check_reload()) {
         for (const auto& callback : internal::reload_callbacks) {
             callback();
         }
     }
 
+    // Loop callbacks, registered some time in setup()
+    // Notice that everything is in order of registration
     for (const auto& callback : internal::loop_callbacks) {
         callback();
+    }
+
+    // One-time callbacks, registered some time during runtime
+    // Notice that callback container is LIFO, most recently added
+    // callback is called first. Copy to allow container modifications.
+    if (!internal::once_callbacks.empty()) {
+        decltype(internal::once_callbacks) once_callbacks;
+        once_callbacks.swap(internal::once_callbacks);
+
+        for (const auto& callback : once_callbacks) {
+            callback();
+        }
     }
 
     espurna::time::delay(internal::loop_delay);
@@ -112,6 +179,11 @@ void setup() {
     // Init persistance
     settingsSetup();
 
+    // Init hardware / software UART ports
+    #if UART_SUPPORT
+        uartSetup();
+    #endif
+
     // Configure logger and crash recorder
     #if DEBUG_SUPPORT
         debugConfigureBoot();
@@ -126,13 +198,14 @@ void setup() {
         terminalSetup();
     #endif
 
-    // Hostname & board name initialization
-    setDefaultHostname();
-    setBoardName();
-
-    boardSetup();
+    networkSetup();
     wifiSetup();
     otaSetup();
+
+    // Our app banner (usually, for uart)
+    #if DEBUG_SUPPORT
+        debugShowBanner();
+    #endif
 
     #if TELNET_SUPPORT
         telnetSetup();
@@ -184,6 +257,11 @@ void setup() {
     // Hardware GPIO expander, needs to be available for modules down below
     #if MCP23S08_SUPPORT
         MCP23S08Setup();
+    #endif
+
+    // PWM driver
+    #if PWM_SUPPORT
+        pwmSetup();
     #endif
 
     // lightSetup must be called before relaySetup
@@ -262,7 +340,7 @@ void setup() {
         schSetup();
     #endif
     #if UART_MQTT_SUPPORT
-        uartmqttSetup();
+        uartMqttSetup();
     #endif
     #ifdef FOXEL_LIGHTFOX_DUAL
         lightfoxSetup();
@@ -299,27 +377,36 @@ void setup() {
 }
 
 } // namespace main
+
 } // namespace
 } // namespace espurna
 
-void espurnaRegisterLoop(LoopCallback callback) {
-    espurna::main::internal::loop_callbacks.push_back(callback);
+void espurnaRegisterOnce(espurna::Callback callback) {
+    espurna::main::push_once(std::move(callback));
+}
+
+void espurnaRegisterOnceUnique(espurna::Callback::Type ptr) {
+    espurna::main::push_once_unique(ptr);
 }
 
 void espurnaRegisterReload(LoopCallback callback) {
-    espurna::main::internal::reload_callbacks.push_back(callback);
+    espurna::main::push_reload(callback);
+}
+
+void espurnaRegisterLoop(LoopCallback callback) {
+    espurna::main::push_loop(callback);
 }
 
 void espurnaReload() {
-    espurna::main::internal::reload_flag = true;
+    espurna::main::flag_reload();
 }
 
 espurna::duration::Milliseconds espurnaLoopDelay() {
-    return espurna::main::internal::loop_delay;
+    return espurna::main::loop_delay();
 }
 
 void espurnaLoopDelay(espurna::duration::Milliseconds value) {
-    espurna::main::internal::loop_delay = value;
+    espurna::main::loop_delay(value);
 }
 
 void setup() {

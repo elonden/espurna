@@ -18,20 +18,25 @@
 
 class AnalogSensor : public BaseAnalogSensor {
     public:
+        static constexpr int RawBits { 10 };
 
-        // ---------------------------------------------------------------------
-        // Public
-        // ---------------------------------------------------------------------
+        static constexpr double RawMax { (1 << RawBits) - 1 };
+        static constexpr double RawMin { 0.0 };
+
+        static constexpr size_t SamplesMin { 1 };
+        static constexpr size_t SamplesMax { 16 };
 
         using Delay = espurna::duration::critical::Microseconds;
 
-        AnalogSensor() {
-            _count = 1;
-            _sensor_id = SENSOR_ANALOG_ID;
+        static constexpr auto DelayMin = Delay{ 200 };
+        static constexpr auto DelayMax = Delay::max();
+
+        unsigned char id() const override {
+            return SENSOR_ANALOG_ID;
         }
 
-        void setSamples(size_t samples) {
-            _samples = std::clamp(samples, SamplesMin, SamplesMax);
+        unsigned char count() const override {
+            return 1;
         }
 
         void setDelay(Delay delay) {
@@ -40,6 +45,10 @@ class AnalogSensor : public BaseAnalogSensor {
 
         void setDelay(uint16_t delay) {
             setDelay(Delay{delay});
+        }
+
+        void setSamples(size_t samples) {
+            _samples = std::clamp(samples, SamplesMin, SamplesMax);
         }
 
         void setFactor(double factor) {
@@ -52,19 +61,19 @@ class AnalogSensor : public BaseAnalogSensor {
 
         // ---------------------------------------------------------------------
 
-        size_t getSamples() {
+        size_t getSamples() const {
             return _samples;
         }
 
-        espurna::duration::Microseconds getDelay() {
+        espurna::duration::Microseconds getDelay() const {
             return _delay;
         }
 
-        double getFactor() {
+        double getFactor() const {
             return _factor;
         }
 
-        double getOffset() {
+        double getOffset() const {
             return _offset;
         }
 
@@ -73,44 +82,50 @@ class AnalogSensor : public BaseAnalogSensor {
         // ---------------------------------------------------------------------
 
         // Initialization method, must be idempotent
-        void begin() {
+        void begin() override {
             _ready = true;
         }
 
         // Descriptive name of the sensor
-        String description() {
-            return String("ANALOG @ TOUT");
+        String description() const override {
+            return F("ANALOG @ TOUT");
         }
 
-        // Descriptive name of the slot # index
-        String description(unsigned char index) {
-            return description();
-        };
-
         // Address of the sensor (it could be the GPIO or I2C address)
-        String address(unsigned char index) {
-            return String("0");
+        String address(unsigned char) const override {
+            return F("A0");
         }
 
         // Type for slot # index
-        unsigned char type(unsigned char index) {
-            if (index == 0) return MAGNITUDE_ANALOG;
+        unsigned char type(unsigned char index) const override {
+            if (index == 0) {
+                return MAGNITUDE_ANALOG;
+            }
+
             return MAGNITUDE_NONE;
         }
 
         // Current value for slot # index
-        double value(unsigned char index) {
-            if (index == 0) return _read();
+        double value(unsigned char index) override {
+            if (index == 0) {
+                return this->analogRead();
+            }
+
             return 0;
         }
 
-    protected:
+        double analogRead() const {
+            return _withFactor(_rawRead());
+        }
 
-        static unsigned int _rawRead(size_t samples, Delay delay) {
+    protected:
+        static unsigned int _rawRead(uint8_t pin, size_t samples, Delay delay) {
+            // TODO: system_adc_read_fast()? current implementation is using system_adc_read()
+            // (which is even more sampling on top of ours)
             unsigned int last { 0 };
             unsigned int result { 0 };
             for (size_t sample = 0; sample < samples; ++sample) {
-                const auto value = analogRead(0);
+                const auto value = ::analogRead(pin);
                 result = result + value - last;
                 last = value;
                 if (sample > 0) {
@@ -123,28 +138,30 @@ class AnalogSensor : public BaseAnalogSensor {
         }
 
         unsigned int _rawRead() const {
-            return _rawRead(_samples, _delay);
-        }
-
-        double _read() const {
-            return _withFactor(_rawRead());
+            return _rawRead(0, _samples, _delay);
         }
 
         double _withFactor(double value) const {
             return _factor * value + _offset;
         }
 
-        static constexpr Delay DelayMin { 200 };
-        static constexpr Delay DelayMax { Delay::max() };
-        Delay _delay { DelayMin };
+        double _minWithFactor() const {
+            return _withFactor(RawMin);
+        }
 
-        static constexpr size_t SamplesMin { 1 };
-        static constexpr size_t SamplesMax { 16 };
+        double _maxWithFactor() const {
+            return _withFactor(RawMax);
+        }
+
+        Delay _delay { DelayMin };
         size_t _samples { SamplesMin };
 
         double _factor { 1.0 };
         double _offset { 0.0 };
 };
+
+constexpr double AnalogSensor::RawMin;
+constexpr double AnalogSensor::RawMax;
 
 constexpr AnalogSensor::Delay AnalogSensor::DelayMin;
 constexpr AnalogSensor::Delay AnalogSensor::DelayMax;

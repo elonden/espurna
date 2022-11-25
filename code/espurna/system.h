@@ -8,11 +8,13 @@ Copyright (C) 2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #pragma once
 
-#include <Arduino.h>
+#include "settings.h"
 
 #include <chrono>
 #include <cstdint>
 #include <limits>
+
+#include <user_interface.h>
 
 struct HeapStats {
     uint32_t available;
@@ -22,16 +24,17 @@ struct HeapStats {
 
 enum class CustomResetReason : uint8_t {
     None,
-    Button,
-    Factory,
-    Hardware,
+    Button,    // button event action
+    Factory,   // requested factory reset
+    Hardware,  // driver event
     Mqtt,
-    Ota,
-    Rpc,
-    Rule,
-    Scheduler,
-    Terminal,
-    Web
+    Ota,       // successful ota
+    Rpc,       // rpc (api) calls
+    Rule,      // rpn rule operator action
+    Scheduler, // scheduled reset
+    Terminal,  // terminal command action
+    Web,       // webui action
+    Stability, // stable counter action
 };
 
 namespace espurna {
@@ -51,7 +54,7 @@ struct RandomDevice {
     uint32_t operator()() const;
 };
 
-} // namespace random
+} // namespace system
 
 namespace duration {
 
@@ -65,7 +68,7 @@ using Milliseconds = std::chrono::duration<uint32_t, std::milli>;
 
 // Our own helper types, a lot of things are based off of the `millis()`
 // (and it can be seamlessly used with any Core functions accepting u32 millisecond inputs)
-using Seconds = std::chrono::duration<uint32_t>;
+using Seconds = std::chrono::duration<uint32_t, std::ratio<1>>;
 using Minutes = std::chrono::duration<uint32_t, std::ratio<60>>;
 using Hours = std::chrono::duration<uint32_t, std::ratio<Minutes::period::num * 60>>;
 using Days = std::chrono::duration<uint32_t, std::ratio<Hours::period::num * 24>>;
@@ -181,6 +184,22 @@ inline void delay(CoreClock::duration value) {
     ::delay(value.count());
 }
 
+bool tryDelay(CoreClock::time_point start, CoreClock::duration timeout, CoreClock::duration interval);
+
+template <typename T>
+void blockingDelay(CoreClock::duration timeout, CoreClock::duration interval, T&& blocked) {
+    const auto start = CoreClock::now();
+    for (;;) {
+        if (tryDelay(start, timeout, interval)) {
+            break;
+        }
+
+        if (!blocked()) {
+            break;
+        }
+    }
+}
+
 // Local implementation of 'delay' that will make sure that we wait for the specified
 // time, even after being woken up. Allows to service Core tasks that are scheduled
 // in-between context switches, where the interval controls the minimum sleep time.
@@ -188,6 +207,68 @@ void blockingDelay(CoreClock::duration timeout, CoreClock::duration interval);
 void blockingDelay(CoreClock::duration timeout);
 
 } // namespace time
+
+namespace timer {
+
+struct SystemTimer {
+    using TimeSource = time::CoreClock;
+    using Duration = TimeSource::duration;
+
+    static constexpr Duration DurationMin = Duration(5);
+
+    SystemTimer();
+    ~SystemTimer() {
+        stop();
+    }
+
+    SystemTimer(const SystemTimer&) = delete;
+    SystemTimer& operator=(const SystemTimer&) = delete;
+
+    SystemTimer(SystemTimer&&) = default;
+    SystemTimer& operator=(SystemTimer&&) = default;
+
+    explicit operator bool() const {
+        return _armed != nullptr;
+    }
+
+    void once(Duration duration, Callback callback) {
+        start(duration, std::move(callback), false);
+    }
+
+    void repeat(Duration duration, Callback callback) {
+        start(duration, std::move(callback), true);
+    }
+
+    void schedule_once(Duration, Callback);
+    void stop();
+
+private:
+    // limit is per https://www.espressif.com/sites/default/files/documentation/2c-esp8266_non_os_sdk_api_reference_en.pdf
+    // > 3.1.1 os_timer_arm
+    // > with `system_timer_reinit()`, the timer value allowed ranges from 100 to 0x0x689D0.
+    // > otherwise, the timer value allowed ranges from 5 to 0x68D7A3.
+    // with current implementation we use division by 2 until we reach value less than this one
+    static constexpr Duration DurationMax = Duration(6870947);
+
+    void reset();
+    void start(Duration, Callback, bool repeat);
+    void callback();
+
+    struct Tick {
+        size_t total;
+        size_t count;
+    };
+
+    Callback _callback;
+
+    os_timer_t* _armed { nullptr };
+    bool _repeat { false };
+
+    std::unique_ptr<Tick> _tick;
+    std::unique_ptr<os_timer_t> _timer;
+};
+
+} // namespace timer
 
 namespace heartbeat {
 
@@ -263,18 +344,27 @@ Mask currentValue();
 Mode currentMode();
 
 } // namespace heartbeat
-} // namespace espurna
 
 namespace settings {
 namespace internal {
 
-String serialize(espurna::heartbeat::Mode);
-String serialize(espurna::duration::Seconds);
-String serialize(espurna::duration::Milliseconds);
-String serialize(espurna::duration::ClockCycles);
+template <>
+heartbeat::Mode convert(const String&);
+
+template <>
+duration::Milliseconds convert(const String&);
+
+template <>
+std::chrono::duration<float> convert(const String&);
+
+String serialize(heartbeat::Mode);
+String serialize(duration::Seconds);
+String serialize(duration::Milliseconds);
+String serialize(duration::ClockCycles);
 
 } // namespace internal
 } // namespace settings
+} // namespace espurna
 
 unsigned long systemFreeStack();
 
@@ -291,6 +381,8 @@ uint32_t systemResetReason();
 uint8_t systemStabilityCounter();
 void systemStabilityCounter(uint8_t count);
 
+void systemForceStable();
+void systemForceUnstable();
 bool systemCheck();
 
 void customResetReason(CustomResetReason);
@@ -313,5 +405,19 @@ void systemHeartbeat(espurna::heartbeat::Callback);
 bool systemHeartbeat();
 
 espurna::duration::Seconds systemUptime();
+
+espurna::StringView systemDevice();
+espurna::StringView systemIdentifier();
+
+espurna::StringView systemChipId();
+espurna::StringView systemShortChipId();
+
+espurna::StringView systemDefaultPassword();
+
+String systemPassword();
+bool systemPasswordEquals(espurna::StringView);
+
+String systemHostname();
+String systemDescription();
 
 void systemSetup();

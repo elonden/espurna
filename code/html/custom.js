@@ -403,21 +403,25 @@ const groupSettingsHandler = {
 // elements must be re-enumerated and assigned new id's to remain unique
 // (and avoid having one line's checkbox affecting some other one)
 
+function createCheckbox(checkbox) {
+    checkbox.id = checkbox.name;
+    checkbox.parentElement.classList.add("toggleWrapper");
+
+    const label = document.createElement("label");
+    label.classList.add("toggle");
+    label.htmlFor = checkbox.id;
+
+    const span = document.createElement("span");
+    span.classList.add("toggle__handler");
+    label.appendChild(span);
+
+    checkbox.parentElement.appendChild(label);
+}
+
 function createCheckboxes(node) {
     const checkboxes = node.querySelectorAll("input[type='checkbox']");
     for (const checkbox of checkboxes) {
-        checkbox.id = checkbox.name;
-        checkbox.parentElement.classList.add("toggleWrapper");
-
-        let label = document.createElement("label");
-        label.classList.add("toggle");
-        label.htmlFor = checkbox.id;
-
-        let span = document.createElement("span");
-        span.classList.add("toggle__handler");
-        label.appendChild(span);
-
-        checkbox.parentElement.appendChild(label);
+        createCheckbox(checkbox);
     }
 }
 
@@ -894,17 +898,33 @@ function initSetupPassword(form) {
     });
 }
 
-function moduleVisible(module) {
+function styleInject(rules) {
+    if (!rules.length) {
+        return;
+    }
+
     const style = document.createElement("style");
     style.setAttribute("type", "text/css");
     document.head.appendChild(style);
 
     let pos = style.sheet.rules.length;
+    for (let rule of rules) {
+        style.sheet.insertRule(rule, pos++);
+    }
+}
+
+function styleVisible(selector, value) {
+    return `${selector} { content-visibility: ${value ? "visible": "hidden"}; }`
+}
+
+function moduleVisible(module) {
     if (module === "sch") {
-        style.sheet.insertRule(`li.module-${module} { display: inherit; }`, pos++);
-        style.sheet.insertRule(`div.module-${module} { display: flex; }`, pos++);
+        styleInject([
+            `li.module-${module} { display: inherit; }`,
+            `div.module-${module} { display: flex; }`
+        ]);
     } else {
-        style.sheet.insertRule(`.module-${module} { display: inherit; }`, pos++);
+        styleInject([`.module-${module} { display: inherit; }`]);
     }
 }
 
@@ -1396,20 +1416,21 @@ function showPanel(event) {
 // Relays & magnitudes mapping
 // -----------------------------------------------------------------------------
 
-function createRelayList(values, container, template_name) {
-    let target = document.getElementById(container);
+function createRelayList(containerId, values, keyPrefix) {
+    const target = document.getElementById(containerId);
     if (target.childElementCount > 0) {
         return;
     }
 
     // TODO: let schema set the settings key
-    let template = loadConfigTemplate(template_name);
+    const template = loadConfigTemplate("number-input");
     values.forEach((value, index) => {
-        let line = template.cloneNode(true);
+        const line = template.cloneNode(true);
         line.querySelector("label").textContent = (Enumerable.relay)
             ? Enumerable.relay[index].name : `Switch #${index}`;
 
-        let input = line.querySelector("input");
+        const input = line.querySelector("input");
+        input.name = keyPrefix;
         input.value = value;
         input.dataset["original"] = value;
 
@@ -1420,7 +1441,7 @@ function createRelayList(values, container, template_name) {
 //removeIf(!sensor)
 
 function initModuleMagnitudes(data) {
-    const targetId = `${data.prefix}Magnitudes`;
+    const targetId = `${data.prefix}-magnitudes`;
 
     let target = document.getElementById(targetId);
     if (target.childElementCount > 0) { return; }
@@ -1759,7 +1780,6 @@ function createMagnitudeInfo(id, magnitude) {
     const input = info.querySelector("input");
     input.dataset["id"] = id;
     input.dataset["type"] = magnitude.type;
-    input.dataset["units"] = Magnitudes.units.names[magnitude.units] || "";
 
     const description = info.querySelector(".magnitude-description");
     description.textContent = magnitude.description;
@@ -1791,12 +1811,12 @@ function createMagnitudeUnitSelector(id, magnitude) {
         setOriginalsFromValuesForNode(line, [select]);
 
         const container = document.getElementById("magnitude-units");
-        container.style.display = "block";
+        container.parentElement.classList.remove("maybe-hidden");
         mergeTemplate(container, line);
     }
 }
 
-function emonRatioInfo(id) {
+function magnitudeSettingInfo(id, key) {
     const out = {
         id: id,
         name: Magnitudes.properties[id].name,
@@ -1804,25 +1824,35 @@ function emonRatioInfo(id) {
         index_global: `${Magnitudes.properties[id].index_global}`
     };
 
-    out.key = `${out.prefix}Ratio${out.index_global}`;
+    out.key = `${out.prefix}${key}${out.index_global}`;
     return out;
 }
 
-function initMagnitudesRatio(id, ratio) {
-    const template = loadTemplate("emon-ratios");
+function emonRatioInfo(id) {
+    return magnitudeSettingInfo(id, "Ratio");
+}
+
+function initMagnitudeTextSetting(containerId, id, keySuffix, value) {
+    const template = loadTemplate("text-input");
     const input = template.querySelector("input");
 
-    const info = emonRatioInfo(id);
+    const info = magnitudeSettingInfo(id, keySuffix);
     input.id = info.key;
     input.name = input.id;
-    input.value = ratio;
+    input.value = value;
     setOriginalsFromValuesForNode(template, [input]);
 
     const label = template.querySelector("label");
     label.textContent = info.name;
     label.htmlFor = input.id;
 
-    mergeTemplate(document.getElementById("emon-ratios"), template);
+    const container = document.getElementById(containerId);
+    container.parentElement.classList.remove("maybe-hidden");
+    mergeTemplate(container, template);
+}
+
+function initMagnitudesRatio(id, value) {
+    initMagnitudeTextSetting("emon-ratios", id, "Ratio", value);
 }
 
 function initMagnitudesExpected(id) {
@@ -1831,10 +1861,6 @@ function initMagnitudesExpected(id) {
     const [expected, result] = template.querySelectorAll("input");
 
     const info = emonRatioInfo(id);
-    const expectedClass = `emon-expected-${info.prefix}`;
-
-    const root = template.children[0];
-    root.classList.add(`show-${expectedClass}`);
 
     expected.name += `${info.key}`;
     expected.id = expected.name;
@@ -1847,14 +1873,11 @@ function initMagnitudesExpected(id) {
     label.textContent = info.name;
     label.htmlFor = expected.id;
 
-    const container = document.getElementById("emon-expected")
-    const hint_shown = container.querySelector(`.show-${expectedClass}`);
-    if (hint_shown === null) {
-        const hint = template.querySelector(`.${expectedClass}`);
-        hint.style.display = "block";
-    }
+    styleInject([
+        styleVisible(`.emon-expected-${info.prefix}`, true)
+    ]);
 
-    mergeTemplate(container, template);
+    mergeTemplate(document.getElementById("emon-expected"), template);
 }
 
 function emonCalculateRatios() {
@@ -1892,14 +1915,44 @@ function emonApplyRatios() {
     showPanelByName("sns");
 }
 
+function initMagnitudesCorrection(id, value) {
+    initMagnitudeTextSetting("magnitude-corrections", id, "Correction", value);
+}
+
 function initMagnitudesSettings(data) {
     data.values.forEach((cfg, id) => {
         const settings = fromSchema(cfg, data.schema);
-        if (settings.Ratio) {
+
+        if (settings.Ratio !== null) {
             initMagnitudesRatio(id, settings.Ratio);
             initMagnitudesExpected(id);
         }
+
+        if (settings.Correction !== null) {
+            initMagnitudesCorrection(id, settings.Correction);
+        }
+
+        let threshold = settings.ZeroThreshold;
+        if (threshold === null) {
+            threshold = NaN;
+        }
+
+        initMagnitudeTextSetting(
+            "magnitude-zero-thresholds", id,
+            "ZeroThreshold", threshold);
+
+        initMagnitudeTextSetting(
+            "magnitude-min-deltas", id,
+            "MinDelta", settings.MinDelta);
+
+        initMagnitudeTextSetting(
+            "magnitude-max-deltas", id,
+            "MaxDelta", settings.MaxDelta);
     });
+}
+
+function magnitudeValueContainer(id) {
+    return document.querySelector(`input[name='magnitude'][data-id='${id}']`);
 }
 
 function updateMagnitudes(data) {
@@ -1909,21 +1962,32 @@ function updateMagnitudes(data) {
         }
 
         const magnitude = fromSchema(cfg, data.schema);
-        const input = document.querySelector(`input[name='magnitude'][data-id='${id}']`);
+        const properties = Magnitudes.properties[id];
+        properties.units = magnitude.units;
 
-        const value = magnitude.value;
-        const units = input.dataset.units || "";
-
+        const units = Magnitudes.units.names[properties.units] || "";
+        const input = magnitudeValueContainer(id);
         input.value = (0 !== magnitude.error)
             ? Magnitudes.errors[magnitude.error]
             : (("nan" === magnitude.value)
                 ? ""
-                : `${value}${units}`);
+                : `${magnitude.value}${units}`);
+    });
+}
 
-        if (magnitude.info.length) {
-            const info = input.parentElement.parentElement.querySelector(".magnitude-info");
+function updateEnergy(data) {
+    data.values.forEach((cfg) => {
+        const energy = fromSchema(cfg, data.schema);
+        if (!Magnitudes.properties[energy.id]) {
+            return;
+        }
+
+        if (energy.saved.length) {
+            const input = magnitudeValueContainer(energy.id);
+            const info = input.parentElement.parentElement
+                .querySelector(".magnitude-info");
             info.style.display = "inherit";
-            info.textContent = magnitude.info;
+            info.textContent = energy.saved;
         }
     });
 }
@@ -2098,138 +2162,272 @@ function colorBox() {
     return {component: iro.ui.Box, options: {}};
 }
 
-function updateColor(mode, value) {
-    if (ColorPicker) {
-        if (mode === "rgb") {
-            ColorPicker.color.hexString = value;
-        } else if (mode === "hsv") {
-            ColorPicker.color.hsv = hsvStringToColor(value);
-        }
-        return;
+function colorUpdate(mode, value) {
+    if ("rgb" === mode) {
+        ColorPicker.color.hexString = value;
+    } else if ("hsv" === mode) {
+        ColorPicker.color.hsv = hsvStringToColor(value);
     }
+}
 
-    // TODO: useRGB -> ltWheel?
-    // TODO: always show wheel + sliders like before?
-    var layout = []
-    if (mode === "rgb") {
-        layout.push(colorWheel());
-        layout.push(colorSlider("value"));
-    } else if (mode === "hsv") {
-        layout.push(colorBox());
-        layout.push(colorSlider("hue"));
+function showLightState(value) {
+    styleInject([
+        styleVisible(".light-control", !value)
+    ]);
+}
+
+function initLightState() {
+    const toggle = document.getElementById("light-state");
+    toggle.addEventListener("change", (event) => {
+        event.preventDefault();
+        sendAction("light", {state: event.target.checked});
+    });
+}
+
+function updateLightState(value) {
+    const state = document.getElementById("light-state");
+    state.checked = value;
+    colorPickerState(value);
+}
+
+function colorPickerCct() {
+    const picker = document.getElementById("light-picker");
+    picker.classList.add("light-cct");
+}
+
+function colorPickerState(value) {
+    const picker = document.getElementById("light-picker");
+    if (value) {
+        picker.classList.add("light-on");
+    } else {
+        picker.classList.remove("light-on");
     }
+}
 
-    var options = {
-        color: (mode === "rgb") ? value : hsvStringToColor(value),
-        layout: layout
+function colorEnabled(value) {
+    styleInject([
+        styleVisible("#light-picker", value)
+    ]);
+
+    channelVisible({
+        "r": !value,
+        "g": !value,
+        "b": !value
+    });
+}
+
+function colorInit(value) {
+    // TODO: ref. #2451, input:change causes pretty fast updates.
+    // either make sure we don't cause any issue on the esp, or switch to
+    // color:change instead (which applies after input ends)
+    let change = () => {
     };
 
-    // TODO: ref. #2451, this causes pretty fast updates.
-    // since we immediatly start the transition, debug print's yield() may interrupt us mid initialization
-    // api could also wait and hold the value for a bit, applying only some of the values between start and end, and then apply the last one
-    ColorPicker = new iro.ColorPicker("#color", options);
-    ColorPicker.on("input:change", (color) => {
-        if (mode === "rgb") {
-            sendAction("color", {rgb: color.hexString});
-        } else if (mode === "hsv") {
-            sendAction("color", {hsv: colorToHsvString(color)});
-        }
+    const rules = [];
+    const layout = [];
+
+    // RGB
+    if (value) {
+        layout.push(colorWheel());
+        change = (color) => {
+            sendAction("light", {
+                rgb: color.hexString
+            });
+        };
+    // HSV
+    } else {
+        layout.push(colorBox());
+        layout.push(colorSlider("hue"));
+        layout.push(colorSlider("saturation"));
+        layout.push(colorSlider("value"));
+        change = (color) => {
+            sendAction("light", {
+                hsv: colorToHsvString(color)
+            });
+        };
+    }
+
+    styleInject(rules);
+
+    ColorPicker = new iro.ColorPicker("#light-picker", {layout});
+    ColorPicker.on("input:change", change);
+}
+
+function updateMireds(value) {
+    const mireds = document.getElementById("mireds");
+    if (mireds !== null) {
+        mireds.value = value;
+        mireds.nextElementSibling.textContent = value;
+    }
+}
+
+// Only allow to see specific channel(s)
+function channelVisible(tags) {
+    const styles = [];
+    for (const [tag, visible] of Object.entries(tags)) {
+        styles.push(styleVisible(`.light-channel-${tag}`, visible));
+    }
+
+    styleInject(styles);
+}
+
+// Only allow to see one of the channels
+function whiteEnabled(value) {
+    if (value) {
+        channelVisible({
+            "w": false,
+            "c": true
+        });
+    }
+}
+
+// When there are CCT controls, no need for raw white channel sliders
+function cctEnabled(value) {
+    if (value) {
+        colorPickerCct();
+        styleInject([
+            styleVisible("#light-channels", false),
+            styleVisible("#light-cct", true),
+        ]);
+    }
+}
+
+function cctInit(value) {
+    const control = loadTemplate("mireds-control");
+
+    const root = control.querySelector("div");
+    root.setAttribute("id", "light-cct");
+
+    const slider = control.getElementById("mireds");
+    slider.setAttribute("min", value.cold);
+    slider.setAttribute("max", value.warm);
+    slider.addEventListener("change", (event) => {
+        event.target.nextElementSibling.textContent = event.target.value;
+        sendAction("light", {mireds: event.target.value});
     });
+
+    const datalist = control.querySelector("datalist");
+    datalist.innerHTML = `
+    <option value="${value.cold}">Cold</option>
+    <option value="${value.warm}">Warm</option>
+    `;
+
+    mergeTemplate(document.getElementById("light"), control);
+}
+
+function updateLight(data) {
+    for (const [key, value] of Object.entries(data)) {
+        switch (key) {
+        case "state":
+            updateLightState(value);
+            break;
+
+        case "channels":
+            initLightState();
+            initBrightness();
+            initChannels(value);
+            break;
+
+        case "cct":
+            cctInit(value);
+            break;
+
+        case "brightness":
+            updateBrightness(value);
+            break;
+
+        case "values":
+            updateChannels(value);
+            break;
+
+        case "rgb":
+        case "hsv":
+            colorUpdate(key, value);
+            break;
+
+        case "mireds":
+            updateMireds(value);
+            break;
+        }
+    }
 }
 
 function onChannelSliderChange(event) {
     event.target.nextElementSibling.textContent = event.target.value;
-    sendAction("channel", {id: event.target.dataset["id"], value: event.target.value});
+
+    let channel = {}
+    channel[event.target.dataset["id"]] = event.target.value;
+
+    sendAction("light", {channel});
 }
 
 function onBrightnessSliderChange(event) {
     event.target.nextElementSibling.textContent = event.target.value;
-    sendAction("brightness", {value: event.target.value});
+    sendAction("light", {brightness: event.target.value});
 }
 
-function updateMireds(value) {
-    let mireds = document.getElementById("mireds");
-    if (mireds !== null) {
-        mireds.setAttribute("min", value.cold);
-        mireds.setAttribute("max", value.warm);
-        mireds.value = value.value;
-        mireds.nextElementSibling.textContent = value.value;
-        return;
-    }
+function initBrightness() {
+    const template = loadTemplate("brightness-control");
+    template.querySelector("div").classList.add("light-brightness");
 
-    let control = loadTemplate("mireds-control");
-    control.getElementById("mireds").addEventListener("change", (event) => {
-        event.target.nextElementSibling.textContent = event.target.value;
-        sendAction("mireds", {mireds: event.target.value});
-    });
-    mergeTemplate(document.getElementById("cct"), control);
-    updateMireds(value);
-}
-
-function updateBrightness(value) {
-    let brightness = document.getElementById("brightness");
-    if (brightness !== null) {
-        brightness.value = value;
-        brightness.nextElementSibling.textContent = value;
-        return;
-    }
-
-    let template = loadTemplate("brightness-control");
-
-    let slider = template.getElementById("brightness");
-    slider.value = value;
-    slider.nextElementSibling.textContent = value;
+    const slider = template.getElementById("brightness");
     slider.addEventListener("change", onBrightnessSliderChange);
 
     mergeTemplate(document.getElementById("light"), template);
 }
 
-function initChannels(container, channels) {
-    channels.forEach((value, channel) => {
-        let line = loadTemplate("channel-control");
-        line.querySelector("span.slider").dataset["id"] = channel;
+function updateBrightness(value) {
+    const brightness = document.getElementById("brightness");
+    if (brightness !== null) {
+        brightness.value = value;
+        brightness.nextElementSibling.textContent = value;
+    }
+}
 
-        let slider = line.querySelector("input.slider");
-        slider.value = value;
-        slider.nextElementSibling.textContent = value;
+function initChannels(channels) {
+    const container = document.createElement("div");
+    container.setAttribute("id", "light-channels");
+    container.classList.add("pure-control-group");
+
+    const enumerables = [];
+
+    channels.forEach((tag, channel) => {
+        const line = loadTemplate("channel-control");
+        line.querySelector("span.slider").dataset["id"] = channel;
+        line.querySelector("div").classList.add(`light-channel-${tag.toLowerCase()}`);
+
+        const slider = line.querySelector("input.slider");
         slider.dataset["id"] = channel;
         slider.addEventListener("change", onChannelSliderChange);
 
-        line.querySelector("label").textContent = "Channel #".concat(channel);
+        const label = `Channel #${channel} (${tag.toUpperCase()})`;
+        line.querySelector("label").textContent = label;
         mergeTemplate(container, line);
+
+        enumerables.push({"id": channel, "name": label});
     });
+
+    const light = document.getElementById("light");
+    light.appendChild(container);
+
+    addEnumerables("Channels", enumerables);
 }
 
-function updateChannels(channels) {
-    let container = document.getElementById("channels");
-    if (container.childElementCount > 0) {
-        channels.forEach((value, channel) => {
-            let slider = container.querySelector(`input.slider[data-id='${channel}']`);
-            if (!slider) {
-                return;
-            }
-
-            // If there are RGB controls, no need for raw channel sliders
-            if (ColorPicker && (channel < 3)) {
-                slider.parentElement.style.display = "none";
-            }
-
-            // Or, when there are CCT controls
-            if ((channel === 3) || (channel === 4)) {
-                let cct = document.getElementById("cct");
-                if (cct.childElementCount > 0) {
-                    slider.parentElement.style.display = "none";
-                }
-            }
-
-            slider.value = value;
-            slider.nextElementSibling.textContent = value;
-        });
+function updateChannels(values) {
+    const container = document.getElementById("light");
+    if (!container) {
         return;
     }
 
-    initChannels(container, channels);
-    updateChannels(channels);
+    values.forEach((value, channel) => {
+        const slider = container.querySelector(`input.slider[data-id='${channel}']`);
+        if (!slider) {
+            return;
+        }
+
+        slider.value = value;
+        slider.nextElementSibling.textContent = value;
+    });
 }
 
 //endRemoveIf(!light)
@@ -2473,31 +2671,29 @@ function processData(data) {
 
         //removeIf(!light)
 
-        if ("lightstate" === key) {
-            let color = document.getElementById("color");
-            color.style.display = value ? "inherit" : "none";
+        if ("light" === key) {
+            updateLight(value);
             return;
         }
 
-        if (("rgb" === key) || ("hsv" === key)) {
-            updateColor(key, value);
-            return;
+        if ("ltRelay" === key) {
+            showLightState(value);
         }
 
-        if ("brightness" === key) {
-            updateBrightness(value);
-            return;
+        if ("useWhite" === key) {
+            whiteEnabled(value);
         }
 
-        if ("channels" === key) {
-            updateChannels(value);
-            addSimpleEnumerables("channel", "Channel", value.length);
-            return;
+        if ("useCCT" === key) {
+            cctEnabled(value);
         }
 
-        if ("mireds" === key) {
-            updateMireds(value);
-            return;
+        if ("useColor" === key) {
+            colorEnabled(value);
+        }
+
+        if ("useRGB" === key) {
+            colorInit(value);
         }
 
         //endRemoveIf(!light)
@@ -2531,6 +2727,11 @@ function processData(data) {
 
         if ("magnitudes" === key) {
             updateMagnitudes(value);
+            return;
+        }
+
+        if ("energy" === key) {
+            updateEnergy(value);
             return;
         }
 
@@ -2628,12 +2829,12 @@ function processData(data) {
         // ---------------------------------------------------------------------
 
         if ("dczRelays" === key) {
-            createRelayList(value, "dczRelays", "dcz-relay");
+            createRelayList("dcz-relays", value, "dczRelayIdx");
             return;
         }
 
         if ("tspkRelays" === key) {
-            createRelayList(value, "tspkRelays", "tspk-relay");
+            createRelayList("tspk-relays", value, "tspkRelay");
             return;
         }
 
@@ -2651,18 +2852,16 @@ function processData(data) {
             return;
         }
 
-        // TODO: squash into a single message, needs a reworked debug buffering
         if ("log" === key) {
             send("{}");
 
-            let msg = value["msg"];
-            let pre = value["pre"];
+            const messages = value["msg"];
+            if (messages === undefined) {
+                return;
+            }
 
-            for (let i = 0; i < msg.length; ++i) {
-                if (pre[i]) {
-                    CmdOutput.push(pre[i]);
-                }
-                CmdOutput.push(msg[i]);
+            for (let msg of messages) {
+                CmdOutput.push(msg);
             }
 
             CmdOutput.follow();
@@ -2938,7 +3137,7 @@ function main() {
                 event.target.elements.cmd.value = "";
 
                 CmdOutput.pushAndFollow(line);
-                sendAction("cmd", {line});
+                sendAction("cmd", {"line": `${line}\n`});
             });
         } else {
             form.addEventListener("submit", (event) => {

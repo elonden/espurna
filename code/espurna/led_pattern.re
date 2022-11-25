@@ -12,9 +12,7 @@ Copyright (C) 2020-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 // '<on1>,<off1>,<repeats1> <on2>,<off2>,<repeats2> ...'
 // And returns a list of Delay objects for the pattern
 
-Pattern::Pattern(const char* begin, const char* end) {
-    char buffer[16];
-
+Pattern::Pattern(espurna::StringView value) {
     const char* on1;
     const char* on2;
 
@@ -24,8 +22,8 @@ Pattern::Pattern(const char* begin, const char* end) {
     const char* repeat1;
     const char* repeat2;
 
-    const char* YYCURSOR { begin };
-    const char* YYLIMIT { end };
+    const char* YYCURSOR { value.begin() };
+    const char* YYLIMIT { value.end() };
     const char* YYMARKER;
 
 loop:
@@ -48,27 +46,28 @@ loop:
         wsp { goto loop; }
 
         @on1 num @on2 [,] @off1 num @off2 [,] @repeat1 num @repeat2 {
-            memcpy(buffer, on1, on2 - on1);
-            buffer[on2 - on1] = '\0';
-            espurna::duration::Milliseconds::rep on { strtoul(buffer, nullptr, 10) };
+            const auto on = parseUnsigned(StringView(on1, on2), 10);
+            if (!on.ok) {
+                return;
+            }
 
-            memcpy(buffer, off1, off2 - off1);
-            buffer[off2 - off1] = '\0';
-            espurna::duration::Milliseconds::rep off { strtoul(buffer, nullptr, 10) };
-
-            memcpy(buffer, repeat1, repeat2 - repeat1);
-            buffer[repeat2 - repeat1] = '\0';
+            const auto off = parseUnsigned(StringView(off1, off2), 10);
+            if (!off.ok) {
+                return;
+            }
 
             using Repeats = Delay::Repeats;
-            Repeats repeats { strtoul(buffer, nullptr, 10) };
-
             constexpr Repeats RepeatsMax { Delay::RepeatsMax };
-            _delays.emplace_back(
-                std::min(espurna::duration::Milliseconds(on), Delay::MillisecondsMax),
-                std::min(espurna::duration::Milliseconds(off), Delay::MillisecondsMax),
-                std::min(repeats, RepeatsMax));
+            const auto repeats = parseUnsigned(StringView(repeat1, repeat2), 10);
+            if (!repeats.ok) {
+                return;
+            }
 
-            if (repeats) {
+            _delays.emplace_back(
+                std::min(duration::Milliseconds(on.value), Delay::MillisecondsMax),
+                std::min(duration::Milliseconds(off.value), Delay::MillisecondsMax),
+                std::min(repeats.value, RepeatsMax));
+            if (repeats.value) {
                 goto loop;
             }
         }

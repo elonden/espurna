@@ -6,7 +6,7 @@ Original module
 Copyright (C) 2017-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 Reworked queueing and RAM usage reduction
-Copyright (C) 2019-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
+Copyright (C) 2019-2022 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 
 */
 
@@ -26,12 +26,16 @@ Copyright (C) 2019-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 #include <forward_list>
 #include <memory>
 
+namespace espurna {
 namespace homeassistant {
 namespace {
+
 namespace build {
 
-const __FlashStringHelper* prefix() {
-    return F(HOMEASSISTANT_PREFIX);
+PROGMEM_STRING(Prefix, HOMEASSISTANT_PREFIX);
+
+constexpr StringView prefix() {
+    return Prefix;
 }
 
 constexpr bool enabled() {
@@ -45,17 +49,24 @@ constexpr bool retain() {
 } // namespace build
 
 namespace settings {
+namespace keys {
+
+PROGMEM_STRING(Prefix, "haPrefix");
+PROGMEM_STRING(Enabled, "haEnabled");
+PROGMEM_STRING(Retain, "haRetain");
+
+} // namespace keys
 
 String prefix() {
-    return getSetting("haPrefix", build::prefix());
+    return getSetting(keys::Prefix, build::prefix());
 }
 
 bool enabled() {
-    return getSetting("haEnabled", build::enabled());
+    return getSetting(keys::Enabled, build::enabled());
 }
 
 bool retain() {
-    return getSetting("haRetain", build::retain());
+    return getSetting(keys::Retain, build::retain());
 }
 
 } // namespace settings
@@ -63,19 +74,17 @@ bool retain() {
 // Output is supposed to be used as both part of the MQTT config topic and the `uniq_id` field
 // TODO: manage UTF8 strings? in case we somehow receive `desc`, like it was done originally
 
-String normalize_ascii(String input, bool lower) {
-    String output(std::move(input));
-
-    for (auto ptr = output.begin(); ptr != output.end(); ++ptr) {
+String normalize_ascii(String value, bool lower) {
+    for (auto ptr = value.begin(); ptr != value.end(); ++ptr) {
         switch (*ptr) {
         case '\0':
-            goto return_output;
+            goto done;
         case '0' ... '9':
         case 'a' ... 'z':
             break;
         case 'A' ... 'Z':
             if (lower) {
-                *ptr += 32;
+                *ptr = (*ptr + 32);
             }
             break;
         default:
@@ -84,50 +93,100 @@ String normalize_ascii(String input, bool lower) {
         }
     }
 
-return_output:
-    return output;
+done:
+    return value;
+}
+
+String normalize_ascii(StringView value, bool lower) {
+    return normalize_ascii(String(value), lower);
 }
 
 // Common data used across the discovery payloads.
 // ref. https://developers.home-assistant.io/docs/entity_registry_index/
 
+// 'runtime' strings, may be changed in settings
+struct ConfigStrings {
+    String name;
+    String identifier;
+    String prefix;
+};
+
+ConfigStrings make_config_strings() {
+    return ConfigStrings{
+        .name = normalize_ascii(systemHostname(), false),
+        .identifier = normalize_ascii(systemIdentifier(), true),
+        .prefix = settings::prefix(),
+    };
+}
+
+// 'build-time' strings, always the same for current build
+struct BuildStrings {
+    String version;
+    String manufacturer;
+    String device;
+};
+
+BuildStrings make_build_strings() {
+    BuildStrings out;
+
+    const auto app = buildApp();
+    out.version = String(app.version);
+
+    const auto hardware = buildHardware();
+    out.manufacturer = String(hardware.manufacturer);
+    out.device = String(hardware.device);
+
+    return out;
+}
+
 class Device {
 public:
-    static constexpr size_t BufferSize { JSON_ARRAY_SIZE(1) + JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(5) };
+    // XXX: take care when adding / removing keys and values below
+    // - `const char*` is copied by pointer value, persistent pointers make sure
+    //   it is valid for the duration of this objects lifetime
+    // - `F(...)` aka `__FlashStringHelpe` **will take more space**
+    //   it is **copied inside of the buffer**, and will take `strlen()` bytes
+    // - allocating more objects **will silently corrupt** buffer region
+    //   while there are *some* checks, current version is going to break
+    static constexpr size_t BufferSize { JSON_ARRAY_SIZE(1) + JSON_OBJECT_SIZE(6) };
 
     using Buffer = StaticJsonBuffer<BufferSize>;
     using BufferPtr = std::unique_ptr<Buffer>;
 
     Device() = delete;
+
     Device(const Device&) = delete;
+    Device& operator=(const Device&) = delete;
 
-    Device(Device&&) = default;
+    Device(Device&&) = delete;
+    Device& operator=(Device&&) = delete;
 
-    template <typename... Args>
-    Device(Args&&... args) :
-        _strings(make_strings(std::forward<Args>(args)...)),
+    Device(ConfigStrings config, BuildStrings build) :
+        _config(std::make_unique<ConfigStrings>(std::move(config))),
+        _build(std::make_unique<BuildStrings>(std::move(build))),
         _buffer(std::make_unique<Buffer>()),
         _root(_buffer->createObject())
     {
-        JsonArray& ids = _root.createNestedArray("ids");
-        ids.add(_strings->identifier.c_str());
+        _root["name"] = _config->name.c_str();
 
-        _root["name"] = _strings->name.c_str();
-        _root["sw"] = _strings->version;
-        _root["mf"] = _strings->manufacturer;
-        _root["mdl"] = _strings->device;
+        auto& ids = _root.createNestedArray("ids");
+        ids.add(_config->identifier.c_str());
+
+        _root["sw"] = _build->version.c_str();
+        _root["mf"] = _build->manufacturer.c_str();
+        _root["mdl"] = _build->device.c_str();
     }
 
     const String& name() const {
-        return _strings->name;
+        return _config->name;
     }
 
     const String& prefix() const {
-        return _strings->prefix;
+        return _config->prefix;
     }
 
     const String& identifier() const {
-        return _strings->identifier;
+        return _config->identifier;
     }
 
     JsonObject& root() {
@@ -135,30 +194,12 @@ public:
     }
 
 private:
-    struct Strings {
-        String prefix;
-        String name;
-        String identifier;
-        const char* version;
-        const char* manufacturer;
-        const char* device;
-    };
+    using ConfigStringsPtr = std::unique_ptr<ConfigStrings>;
+    ConfigStringsPtr _config;
 
-    using StringsPtr = std::unique_ptr<Strings>;
+    using BuildStringsPtr = std::unique_ptr<BuildStrings>;
+    BuildStringsPtr _build;
 
-    StringsPtr make_strings(String prefix, String name, String identifier, const char* version, const char* manufacturer, const char* device) {
-        return std::make_unique<Strings>(
-            Strings{
-                std::move(prefix),
-                normalize_ascii(std::move(name), false),
-                normalize_ascii(std::move(identifier), true),
-                version,
-                manufacturer,
-                device
-            });
-    }
-
-    StringsPtr _strings;
     BufferPtr _buffer;
     JsonObject& _root;
 };
@@ -169,7 +210,7 @@ using JsonBufferPtr = std::unique_ptr<DynamicJsonBuffer>;
 class Context {
 public:
     Context() = delete;
-    Context(DevicePtr&& device, size_t capacity) :
+    Context(DevicePtr device, size_t capacity) :
         _device(std::move(device)),
         _capacity(capacity)
     {}
@@ -221,19 +262,6 @@ private:
     JsonBufferPtr _json { nullptr };
     size_t _capacity { 0ul };
 };
-
-Context makeContext() {
-    auto device = std::make_unique<Device>(
-        settings::prefix(),
-        getHostname(),
-        getIdentifier(),
-        getVersion(),
-        getManufacturer(),
-        getDevice()
-    );
-
-    return Context(std::move(device), 2048ul);
-}
 
 String quote(String&& value) {
     if (value.equalsIgnoreCase("y")
@@ -288,17 +316,16 @@ struct RelayContext {
 
 RelayContext makeRelayContext() {
     return {
-        mqttTopic(MQTT_TOPIC_STATUS, false),
+        mqttTopic(MQTT_TOPIC_STATUS),
         quote(mqttPayloadStatus(true)),
         quote(mqttPayloadStatus(false)),
-        quote(relayPayload(PayloadStatus::On)),
-        quote(relayPayload(PayloadStatus::Off))
+        quote(relayPayload(PayloadStatus::On).toString()),
+        quote(relayPayload(PayloadStatus::Off).toString())
     };
 }
 
 class RelayDiscovery : public Discovery {
 public:
-    RelayDiscovery() = delete;
     explicit RelayDiscovery(Context& ctx) :
         _ctx(ctx),
         _relay(makeRelayContext()),
@@ -345,8 +372,8 @@ public:
             json[F("pl_off")] = _relay.payload_off.c_str();
             json[F("uniq_id")] = uniqueId();
             json[F("name")] = _ctx.name() + ' ' + _index;
-            json[F("stat_t")] = mqttTopic(MQTT_TOPIC_RELAY, _index, false);
-            json[F("cmd_t")] = mqttTopic(MQTT_TOPIC_RELAY, _index, true);
+            json[F("stat_t")] = mqttTopic(MQTT_TOPIC_RELAY, _index);
+            json[F("cmd_t")] = mqttTopicSetter(MQTT_TOPIC_RELAY, _index);
             json.printTo(_message);
         }
         return _message;
@@ -384,27 +411,23 @@ private:
 
 // Example payload:
 // {
+//  "state": "ON",
 //  "brightness": 255,
-//  "color_temp": 155,
+//  "color_mode": "rgb",
 //  "color": {
 //    "r": 255,
 //    "g": 180,
 //    "b": 200,
-//    "x": 0.406,
-//    "y": 0.301,
-//    "h": 344.0,
-//    "s": 29.412
 //  },
-//  "effect": "colorloop",
-//  "state": "ON",
 //  "transition": 2,
-//  "white_value": 150
 // }
 
 // Notice that we only support JSON schema payloads, leaving it to the user to configure special
 // per-channel topics, as those don't really fit into the HASS idea of lights controls for a single device
 
 #if LIGHT_PROVIDER != LIGHT_PROVIDER_NONE
+
+static constexpr char Topic[] = MQTT_TOPIC_LIGHT_JSON;
 
 class LightDiscovery : public Discovery {
 public:
@@ -456,28 +479,40 @@ public:
 
             json[F("name")] = _ctx.name() + ' ' + F("Light");
 
-            json[F("stat_t")] = mqttTopic(MQTT_TOPIC_LIGHT_JSON, false);
-            json[F("cmd_t")] = mqttTopic(MQTT_TOPIC_LIGHT_JSON, true);
+            json[F("stat_t")] = mqttTopic(Topic);
+            json[F("cmd_t")] = mqttTopicSetter(Topic);
 
-            json[F("avty_t")] = mqttTopic(MQTT_TOPIC_STATUS, false);
+            json[F("avty_t")] = mqttTopic(MQTT_TOPIC_STATUS);
             json[F("pl_avail")] = quote(mqttPayloadStatus(true));
             json[F("pl_not_avail")] = quote(mqttPayloadStatus(false));
-
-            // send `true` for every payload we support sending / receiving
-            // already enabled by default: "state", "transition"
-
-            json[F("brightness")] = true;
 
             // Note that since we send back the values immediately, HS mode sliders
             // *will jump*, as calculations of input do not always match the output.
             // (especially, when gamma table is used, as we modify the results)
             // In case or RGB, channel values input is expected to match the output exactly.
 
+            // Since 2022.9.x we have a different payload setup
+            // - https://github.com/xoseperez/espurna/issues/2539
+            // - https://github.com/home-assistant/core/blob/2022.9.7/homeassistant/components/mqtt/light/schema_json.py
+            // * ignore 'onoff' and 'brightness'
+            //   both described as 'Must be the only supported mode'
+            // * 'hs' is always supported, but HA UI depends on our setting and
+            //   what gets sent in the json payload
+            // * 'c' and 'w' mean different things depending on *our* context
+            //   'rgbw' - we receive and map to 'w' to our 'warm'
+            //   'rgbww' - we receive and map 'c' to our 'cold' and 'w' to our 'warm'
+            //   'cw' / 'ww' without 'rgb' are not supported; see 'brightness' or 'color_temp'
+            json["brightness"] = true;
+            json["color_mode"] = true;
+            JsonArray& modes = json.createNestedArray("supported_color_modes");
+
             if (lightHasColor()) {
-                if (lightUseRGB()) {
-                    json[F("rgb")] = true;
-                } else {
-                    json[F("hs")] = true;
+                modes.add("hs");
+                modes.add("rgb");
+                if (lightHasWarmWhite() && lightHasColdWhite()) {
+                    modes.add("rgbww");
+                } else if (lightHasWarmWhite()) {
+                    modes.add("rgbw");
                 }
             }
 
@@ -485,12 +520,16 @@ public:
             // (...besides the internally pinned value, ref. MQTT_TOPIC_MIRED. not used here though)
             // - in RGB mode, we convert the temperature into a specific color
             // - in CCT mode, white channels are used
+            if (lightHasColor() || lightHasWhite()) {
+                const auto range = lightMiredsRange();
+                json["min_mirs"] = range.cold();
+                json["max_mirs"] = range.warm();
+                modes.add("color_temp");
+                modes.add("white");
+            }
 
-            if (lightHasColor() || lightUseCCT()) {
-                auto range = lightMiredsRange();
-                json[F("min_mirs")] = range.cold();
-                json[F("max_mirs")] = range.warm();
-                json[F("color_temp")] = true;
+            if (!modes.size()) {
+                modes.add("brightness");
             }
 
             json.printTo(_message);
@@ -508,34 +547,51 @@ private:
     String _message;
 };
 
-bool heartbeat(espurna::heartbeat::Mask mask) {
+void heartbeat_rgb(JsonObject& root, JsonObject& color) {
+    const auto rgb = lightRgb();
+
+    color["r"] = rgb.red();
+    color["g"] = rgb.green();
+    color["b"] = rgb.blue();
+
+    if (lightHasWarmWhite() && lightHasColdWhite()) {
+        root["color_mode"] = "rgbww";
+        color["c"] = lightColdWhite();
+        color["w"] = lightWarmWhite();
+    } else if (lightHasWarmWhite()) {
+        root["color_mode"] = "rgbw";
+        color["w"] = lightWarmWhite();
+    } else {
+        root["color_mode"] = "rgb";
+    }
+}
+
+void heartbeat_hsv(JsonObject& root, JsonObject& color) {
+    root["color_mode"] = "hs";
+
+    const auto hsv = lightHsv();
+    color["h"] = hsv.hue();
+    color["s"] = hsv.saturation();
+}
+
+bool heartbeat(heartbeat::Mask mask) {
     // TODO: mask json payload specifically?
     // or, find a way to detach masking from the system setting / don't use heartbeat timer
-    if (mask & espurna::heartbeat::Report::Light) {
+    if (mask & heartbeat::Report::Light) {
         DynamicJsonBuffer buffer(512);
         JsonObject& root = buffer.createObject();
 
-        auto state = lightState();
+        const auto state = lightState();
         root["state"] = state ? "ON" : "OFF";
 
         if (state) {
             root["brightness"] = lightBrightness();
-
-            if (lightUseCCT()) {
-                root["white_value"] = lightColdWhite();
-            }
-
-            if (lightColor()) {
+            if (lightHasColor() && lightColor()) {
                 auto& color = root.createNestedObject("color");
                 if (lightUseRGB()) {
-                    auto rgb = lightRgb();
-                    color["r"] = rgb.red();
-                    color["g"] = rgb.green();
-                    color["b"] = rgb.blue();
+                    heartbeat_rgb(root, color);
                 } else {
-                    auto hsv = lightHsv();
-                    color["h"] = hsv.hue();
-                    color["s"] = hsv.saturation();
+                    heartbeat_hsv(root, color);
                 }
             }
         }
@@ -543,20 +599,21 @@ bool heartbeat(espurna::heartbeat::Mask mask) {
         String message;
         root.printTo(message);
 
-        String topic = mqttTopic(MQTT_TOPIC_LIGHT_JSON, false);
-        mqttSendRaw(topic.c_str(), message.c_str(), false);
+        mqttSendRaw(
+            mqttTopic(Topic).c_str(),
+            message.c_str(), false);
     }
 
     return true;
 }
 
 void publishLightJson() {
-    heartbeat(static_cast<espurna::heartbeat::Mask>(espurna::heartbeat::Report::Light));
+    heartbeat(static_cast<heartbeat::Mask>(heartbeat::Report::Light));
 }
 
-void receiveLightJson(char* payload) {
+void receiveLightJson(StringView payload) {
     DynamicJsonBuffer buffer(1024);
-    JsonObject& root = buffer.parseObject(payload);
+    JsonObject& root = buffer.parseObject(payload.begin());
     if (!root.success()) {
         return;
     }
@@ -565,10 +622,11 @@ void receiveLightJson(char* payload) {
         return;
     }
 
-    auto state = root["state"].as<String>();
-    if (state == F("ON")) {
+    const auto state = root["state"].as<String>();
+
+    if (StringView("ON") == state) {
         lightState(true);
-    } else if (state == F("OFF")) {
+    } else if (StringView("OFF") == state) {
         lightState(false);
     } else {
         return;
@@ -586,7 +644,8 @@ void receiveLightJson(char* payload) {
     }
 
     if (root.containsKey("color_temp")) {
-        lightMireds(root["color_temp"].as<long>());
+        const auto mireds = root["color_temp"].as<long>();
+        lightTemperature(light::Mireds{ .value = mireds });
     }
 
     if (root.containsKey("brightness")) {
@@ -595,20 +654,29 @@ void receiveLightJson(char* payload) {
 
     if (lightHasColor() && root.containsKey("color")) {
         JsonObject& color = root["color"];
-        if (lightUseRGB()) {
+        if (color.containsKey("h")
+         && color.containsKey("s"))
+        {
+            lightHs(
+                color["h"].as<long>(),
+                color["s"].as<long>());
+        } else if (color.containsKey("r")
+                && color.containsKey("g")
+                && color.containsKey("b"))
+        {
             lightRgb({
                 color["r"].as<long>(),
                 color["g"].as<long>(),
                 color["b"].as<long>()});
-        } else {
-            lightHs(
-                color["h"].as<long>(),
-                color["s"].as<long>());
         }
-    }
 
-    if (lightUseCCT() && root.containsKey("white_value")) {
-        lightColdWhite(root["white_value"].as<long>());
+        if (color.containsKey("w")) {
+            lightWarmWhite(color["w"].as<long>());
+        }
+
+        if (color.containsKey("c")) {
+            lightColdWhite(color["c"].as<long>());
+        }
     }
 
     lightUpdate({transition, lightTransitionStep()});
@@ -620,7 +688,6 @@ void receiveLightJson(char* payload) {
 
 class SensorDiscovery : public Discovery {
 public:
-    SensorDiscovery() = delete;
     explicit SensorDiscovery(Context& ctx) :
         _ctx(ctx),
         _magnitudes(magnitudeCount())
@@ -634,7 +701,7 @@ public:
         return *_root;
     }
 
-    bool ok() const {
+    bool ok() const override {
         return _index < _magnitudes;
     }
 
@@ -656,8 +723,8 @@ public:
             json[F("uniq_id")] = uniqueId();
 
             json[F("name")] = _ctx.name() + ' ' + name() + ' ' + localId();
-            json[F("stat_t")] = mqttTopic(magnitudeTopicIndex(_index), false);
-            json[F("unit_of_meas")] = magnitudeUnits(_index);
+            json[F("stat_t")] = mqttTopic(_info.topic);
+            json[F("unit_of_meas")] = magnitudeUnitsName(_info.units);
 
             json.printTo(_message);
         }
@@ -667,14 +734,14 @@ public:
 
     const String& name() {
         if (!_name.length()) {
-            _name = magnitudeTopic(magnitudeType(_index));
+            _name = magnitudeTypeTopic(_info.type);
         }
 
         return _name;
     }
 
     unsigned char localId() const {
-        return magnitudeIndex(_index);
+        return _info.index;
     }
 
     const String& uniqueId() {
@@ -690,6 +757,7 @@ public:
             auto current = _index;
             ++_index;
             if ((_index > current) && (_index < _magnitudes)) {
+                _info = magnitudeInfo(_index);
                 _unique_id = "";
                 _name = "";
                 _topic = "";
@@ -705,8 +773,9 @@ private:
     Context& _ctx;
     JsonObject* _root { nullptr };
 
-    unsigned char _index { 0u };
     unsigned char _magnitudes { 0u };
+    unsigned char _index { 0u };
+    sensor::Info _info;
 
     String _unique_id;
     String _name;
@@ -716,20 +785,38 @@ private:
 
 #endif
 
+DevicePtr make_device_ptr() {
+    return std::make_unique<Device>(
+        make_config_strings(),
+        make_build_strings());
+}
+
+Context make_context() {
+    return Context(make_device_ptr(), 2048);
+}
+
 // Reworked discovery class. Try to send and wait for MQTT QoS 1 publish ACK to continue.
 // Topic and message are generated on demand and most of JSON payload is cached for re-use to save RAM.
-
 class DiscoveryTask {
 public:
     using Entity = std::unique_ptr<Discovery>;
     using Entities = std::forward_list<Entity>;
 
-    static constexpr espurna::duration::Milliseconds WaitShort { 100 };
-    static constexpr espurna::duration::Milliseconds WaitLong { 1000 };
+    static constexpr duration::Milliseconds WaitShort { 100 };
+    static constexpr duration::Milliseconds WaitLong { 1000 };
     static constexpr int Retries { 5 };
 
-    DiscoveryTask(bool enabled) :
-        _enabled(enabled)
+    DiscoveryTask() = delete;
+
+    DiscoveryTask(const DiscoveryTask&) = delete;
+    DiscoveryTask& operator=(const DiscoveryTask&) = delete;
+
+    DiscoveryTask(DiscoveryTask&&) = delete;
+    DiscoveryTask& operator=(DiscoveryTask&&) = delete;
+
+    DiscoveryTask(Context ctx, bool enabled) :
+        _enabled(enabled),
+        _ctx(std::move(ctx))
     {}
 
     void add(Entity&& entity) {
@@ -798,14 +885,14 @@ public:
 
 private:
     bool _enabled { false };
-
     int _retry { Retries };
-    Context _ctx { makeContext() };
+
     Entities _entities;
+    Context _ctx;
 };
 
-constexpr espurna::duration::Milliseconds DiscoveryTask::WaitShort;
-constexpr espurna::duration::Milliseconds DiscoveryTask::WaitLong;
+constexpr duration::Milliseconds DiscoveryTask::WaitShort;
+constexpr duration::Milliseconds DiscoveryTask::WaitLong;
 
 namespace internal {
 
@@ -822,12 +909,12 @@ enum class State {
 };
 
 State state { State::Initial };
-Ticker timer;
+timer::SystemTimer timer;
 
 void send(TaskPtr ptr, FlagPtr flag_ptr);
 
 void stop(bool done) {
-    timer.detach();
+    timer.stop();
     if (done) {
         DEBUG_MSG_P(PSTR("[HA] Stopping discovery\n"));
         state = State::Sent;
@@ -837,9 +924,9 @@ void stop(bool done) {
     }
 }
 
-void schedule(espurna::duration::Milliseconds wait, TaskPtr ptr, FlagPtr flag_ptr) {
-    internal::timer.once_ms_scheduled(
-        wait.count(),
+void schedule(duration::Milliseconds wait, TaskPtr ptr, FlagPtr flag_ptr) {
+    timer.schedule_once(
+        wait,
         [ptr, flag_ptr]() {
             send(ptr, flag_ptr);
         });
@@ -906,11 +993,12 @@ void send(TaskPtr ptr, FlagPtr flag_ptr) {
 } // namespace internal
 
 void publishDiscovery() {
-    if (!mqttConnected() || internal::timer.active() || (internal::state != internal::State::Pending)) {
+    if (!mqttConnected() || internal::timer || (internal::state != internal::State::Pending)) {
         return;
     }
 
-    auto task = std::make_shared<DiscoveryTask>(internal::enabled);
+    auto task = std::make_shared<DiscoveryTask>(
+        make_context(), internal::enabled);
 
 #if LIGHT_PROVIDER != LIGHT_PROVIDER_NONE
     task->add<LightDiscovery>();
@@ -942,27 +1030,27 @@ void configure() {
     homeassistant::publishDiscovery();
 }
 
-void mqttCallback(unsigned int type, const char* topic, char* payload) {
+void mqttCallback(unsigned int type, StringView topic, StringView payload) {
     if (MQTT_DISCONNECT_EVENT == type) {
         if (internal::state == internal::State::Sent) {
             internal::state = internal::State::Pending;
         }
-        internal::timer.detach();
+        internal::timer.stop();
         return;
     }
 
     if (MQTT_CONNECT_EVENT == type) {
 #if LIGHT_PROVIDER != LIGHT_PROVIDER_NONE
-        ::mqttSubscribe(MQTT_TOPIC_LIGHT_JSON);
+        ::mqttSubscribe(Topic);
 #endif
-        ::schedule_function(publishDiscovery);
+        ::espurnaRegisterOnce(publishDiscovery);
         return;
     }
 
 #if LIGHT_PROVIDER != LIGHT_PROVIDER_NONE
     if (type == MQTT_MESSAGE_EVENT) {
-        String t = ::mqttMagnitude(topic);
-        if (t.equals(MQTT_TOPIC_LIGHT_JSON)) {
+        auto t = ::mqttMagnitude(topic);
+        if (t.equals(Topic)) {
             receiveLightJson(payload);
         }
         return;
@@ -974,25 +1062,73 @@ namespace web {
 
 #if WEB_SUPPORT
 
+PROGMEM_STRING(Prefix, "ha");
+
 void onVisible(JsonObject& root) {
-    wsPayloadModule(root, "ha");
+    wsPayloadModule(root, Prefix);
 }
 
 void onConnected(JsonObject& root) {
-    root["haPrefix"] = settings::prefix();
-    root["haEnabled"] = settings::enabled();
-    root["haRetain"] = settings::retain();
+    root[FPSTR(settings::keys::Prefix)] = settings::prefix();
+    root[FPSTR(settings::keys::Enabled)] = settings::enabled();
+    root[FPSTR(settings::keys::Retain)] = settings::retain();
 }
 
-bool onKeyCheck(const char* key, JsonVariant& value) {
-    return (strncmp(key, "ha", 2) == 0);
+bool onKeyCheck(StringView key, const JsonVariant& value) {
+    return espurna::settings::query::samePrefix(key, Prefix);
 }
 
 #endif
 
 } // namespace web
+
+#if TERMINAL_SUPPORT
+namespace terminal {
+
+PROGMEM_STRING(Send, "HA.SEND");
+
+void send(::terminal::CommandContext&& ctx) {
+    internal::state = internal::State::Pending;
+    publishDiscovery();
+    terminalOK(ctx);
+}
+
+static constexpr ::terminal::Command Commands[] PROGMEM {
+    {Send, send},
+};
+
+void setup() {
+    espurna::terminal::add(Commands);
+}
+
+} // namespace terminal
+#endif
+
+void setup() {
+#if WEB_SUPPORT
+    wsRegister()
+        .onVisible(web::onVisible)
+        .onConnected(web::onConnected)
+        .onKeyCheck(web::onKeyCheck);
+#endif
+
+#if LIGHT_PROVIDER != LIGHT_PROVIDER_NONE
+    lightOnReport(publishLightJson);
+    mqttHeartbeat(heartbeat);
+#endif
+    mqttRegister(mqttCallback);
+
+#if TERMINAL_SUPPORT
+    terminal::setup();
+#endif
+
+    espurnaRegisterReload(configure);
+    configure();
+}
+
 } // namespace
 } // namespace homeassistant
+} // namespace espurna
 
 // This module no longer implements .yaml generation, since we can't:
 // - use unique_id in the device config
@@ -1001,29 +1137,7 @@ bool onKeyCheck(const char* key, JsonVariant& value) {
 //   (yet? needs reworked configuration section or making functions read settings directly)
 
 void haSetup() {
-#if WEB_SUPPORT
-    wsRegister()
-        .onVisible(homeassistant::web::onVisible)
-        .onConnected(homeassistant::web::onConnected)
-        .onKeyCheck(homeassistant::web::onKeyCheck);
-#endif
-
-#if LIGHT_PROVIDER != LIGHT_PROVIDER_NONE
-    lightOnReport(homeassistant::publishLightJson);
-    mqttHeartbeat(homeassistant::heartbeat);
-#endif
-    mqttRegister(homeassistant::mqttCallback);
-
-#if TERMINAL_SUPPORT
-    terminalRegisterCommand(F("HA.SEND"), [](::terminal::CommandContext&& ctx) {
-        homeassistant::internal::state = homeassistant::internal::State::Pending;
-        homeassistant::publishDiscovery();
-        terminalOK(ctx);
-    });
-#endif
-
-    espurnaRegisterReload(homeassistant::configure);
-    homeassistant::configure();
+    espurna::homeassistant::setup();
 }
 
 #endif // HOMEASSISTANT_SUPPORT

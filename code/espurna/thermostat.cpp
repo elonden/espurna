@@ -176,7 +176,7 @@ bool _thermostatMqttHeartbeat(espurna::heartbeat::Mask mask) {
     return mqttConnected();
 }
 
-void thermostatMqttCallback(unsigned int type, const char* topic, char* payload) {
+void thermostatMqttCallback(unsigned int type, espurna::StringView topic, espurna::StringView payload) {
 
     if (type == MQTT_CONNECT_EVENT) {
       mqttSubscribeRaw(thermostat_remote_sensor_topic.c_str());
@@ -184,24 +184,22 @@ void thermostatMqttCallback(unsigned int type, const char* topic, char* payload)
     }
 
     if (type == MQTT_MESSAGE_EVENT) {
-
-        // Match topic
-        String t = mqttMagnitude(topic);
-
-        if (strcmp(topic, thermostat_remote_sensor_topic.c_str()) != 0
-         && !t.equals(MQTT_TOPIC_HOLD_TEMP))
+        auto t = mqttMagnitude(topic);
+        if ((topic != thermostat_remote_sensor_topic)
+            && !t.equals(MQTT_TOPIC_HOLD_TEMP))
+        {
            return;
+        }
 
-        // Parse JSON input
         DynamicJsonBuffer jsonBuffer;
-        JsonObject& root = jsonBuffer.parseObject(payload);
+        JsonObject& root = jsonBuffer.parseObject(payload.begin());
         if (!root.success()) {
             DEBUG_MSG_P(PSTR("[THERMOSTAT] Error parsing data\n"));
             return;
         }
 
-        // Check rempte sensor temperature
-        if (strcmp(topic, thermostat_remote_sensor_topic.c_str()) == 0) {
+        // Check remote sensor temperature
+        if (topic == thermostat_remote_sensor_topic) {
             if (root.containsKey(magnitudeTopic(MAGNITUDE_TEMPERATURE))) {
                 String remote_temp = root[magnitudeTopic(MAGNITUDE_TEMPERATURE)];
                 _remote_temp.temp = remote_temp.toFloat();
@@ -410,23 +408,23 @@ void updateCounters() {
 double _getLocalValue(const char* description, unsigned char type) {
 #if SENSOR_SUPPORT
     for (unsigned char index = 0; index < magnitudeCount(); ++index) {
-        if (magnitudeType(index) != type) continue;
-        auto value = magnitudeValue(index);
-
-        DEBUG_MSG_P(PSTR("[THERMOSTAT] %s: %s\n"),
-            description, value.toString().c_str());
-
-        return value.get();
+        if (magnitudeType(index) == type) {
+            const auto value = magnitudeValue(index);
+            DEBUG_MSG_P(PSTR("[THERMOSTAT] %s: %s\n"),
+                    description, value.repr.c_str());
+            return value.value;
+        }
     }
 #endif
-    return sensor::Value::Unknown;
+    return espurna::sensor::Value::Unknown;
 }
 
 String _getLocalUnit(unsigned char type) {
 #if SENSOR_SUPPORT
     for (unsigned char index = 0; index < magnitudeCount(); ++index) {
-        if (magnitudeType(index) == type) {
-            return magnitudeUnits(index);
+        const auto info = magnitudeInfo(index);
+        if (info.type == type) {
+            return magnitudeUnitsName(info.units);
         }
     }
 #endif
@@ -780,7 +778,7 @@ void displayLoop() {
 #if WEB_SUPPORT
 //------------------------------------------------------------------------------
 void _thermostatWebSocketOnVisible(JsonObject& root) {
-    wsPayloadModule(root, "thermostat");
+    wsPayloadModule(root, PSTR("thermostat"));
 }
 
 void _thermostatWebSocketOnConnected(JsonObject& root) {
@@ -813,18 +811,18 @@ void _thermostatWebSocketOnConnected(JsonObject& root) {
 }
 
 //------------------------------------------------------------------------------
-bool _thermostatWebSocketOnKeyCheck(const char * key, JsonVariant& value) {
-    if (strncmp(key, NAME_THERMOSTAT_ENABLED,   strlen(NAME_THERMOSTAT_ENABLED))   == 0) return true;
-    if (strncmp(key, NAME_THERMOSTAT_MODE,      strlen(NAME_THERMOSTAT_MODE))      == 0) return true;
-    if (strncmp(key, NAME_TEMP_RANGE_MIN,       strlen(NAME_TEMP_RANGE_MIN))       == 0) return true;
-    if (strncmp(key, NAME_TEMP_RANGE_MAX,       strlen(NAME_TEMP_RANGE_MAX))       == 0) return true;
-    if (strncmp(key, NAME_REMOTE_SENSOR_NAME,   strlen(NAME_REMOTE_SENSOR_NAME))   == 0) return true;
-    if (strncmp(key, NAME_REMOTE_TEMP_MAX_WAIT, strlen(NAME_REMOTE_TEMP_MAX_WAIT)) == 0) return true;
-    if (strncmp(key, NAME_MAX_ON_TIME,          strlen(NAME_MAX_ON_TIME))          == 0) return true;
-    if (strncmp(key, NAME_MIN_OFF_TIME,         strlen(NAME_MIN_OFF_TIME))         == 0) return true;
-    if (strncmp(key, NAME_ALONE_ON_TIME,        strlen(NAME_ALONE_ON_TIME))        == 0) return true;
-    if (strncmp(key, NAME_ALONE_OFF_TIME,       strlen(NAME_ALONE_OFF_TIME))       == 0) return true;
-    return false;
+bool _thermostatWebSocketOnKeyCheck(espurna::StringView key, const JsonVariant&) {
+    return key == NAME_THERMOSTAT_ENABLED
+        || key == NAME_THERMOSTAT_ENABLED
+        || key == NAME_THERMOSTAT_MODE
+        || key == NAME_TEMP_RANGE_MIN
+        || key == NAME_TEMP_RANGE_MAX
+        || key == NAME_REMOTE_SENSOR_NAME
+        || key == NAME_REMOTE_TEMP_MAX_WAIT
+        || key == NAME_MAX_ON_TIME
+        || key == NAME_MIN_OFF_TIME
+        || key == NAME_ALONE_ON_TIME
+        || key == NAME_ALONE_OFF_TIME;
 }
 
 //------------------------------------------------------------------------------

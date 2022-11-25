@@ -148,7 +148,9 @@
 #define BH1750_ADDRESS                  0x00    // 0x00 means auto
 #endif
 
+#ifndef BH1750_MODE
 #define BH1750_MODE                     BH1750_CONTINUOUS_HIGH_RES_MODE
+#endif
 
 //------------------------------------------------------------------------------
 // BMP085/BMP180
@@ -264,21 +266,10 @@
 #define CSE7766_SUPPORT                 0
 #endif
 
-#ifndef CSE7766_RX_PIN
-#define CSE7766_RX_PIN                  3      // RX pin connected to the CSE7766
-                                               // As we never transmit anything, this is the only pin used
+#ifndef CSE7766_PORT
+#define CSE7766_PORT                    1      // By default, use the first port
+                                               // (needs `UART[1-3]_BAUDRATE 4800`)
 #endif
-
-#ifndef CSE7766_PIN_INVERSE
-#define CSE7766_PIN_INVERSE             0       // Signal is inverted
-#endif
-
-#define CSE7766_SYNC_INTERVAL           300     // Safe time between transmissions (ms)
-#define CSE7766_BAUDRATE                4800    // UART baudrate
-
-#define CSE7766_V1R                     1.0     // 1mR current resistor
-#define CSE7766_V2R                     1.0     // 1M voltage resistor
-
 
 //------------------------------------------------------------------------------
 // Digital sensor
@@ -298,7 +289,7 @@
 #endif
 
 #ifndef DIGITAL1_DEFAULT_STATE
-#define DIGITAL1_DEFAULT_STATE           1
+#define DIGITAL1_DEFAULT_STATE           HIGH
 #endif
 
 #ifndef DIGITAL2_PIN
@@ -310,7 +301,7 @@
 #endif
 
 #ifndef DIGITAL2_DEFAULT_STATE
-#define DIGITAL2_DEFAULT_STATE           1
+#define DIGITAL2_DEFAULT_STATE           HIGH
 #endif
 
 #ifndef DIGITAL3_PIN
@@ -322,7 +313,7 @@
 #endif
 
 #ifndef DIGITAL3_DEFAULT_STATE
-#define DIGITAL3_DEFAULT_STATE           1
+#define DIGITAL3_DEFAULT_STATE           HIGH
 #endif
 
 #ifndef DIGITAL4_PIN
@@ -334,7 +325,7 @@
 #endif
 
 #ifndef DIGITAL4_DEFAULT_STATE
-#define DIGITAL4_DEFAULT_STATE           1
+#define DIGITAL4_DEFAULT_STATE           HIGH
 #endif
 
 #ifndef DIGITAL5_PIN
@@ -346,7 +337,7 @@
 #endif
 
 #ifndef DIGITAL5_DEFAULT_STATE
-#define DIGITAL5_DEFAULT_STATE           1
+#define DIGITAL5_DEFAULT_STATE           HIGH
 #endif
 
 #ifndef DIGITAL6_PIN
@@ -358,7 +349,7 @@
 #endif
 
 #ifndef DIGITAL6_DEFAULT_STATE
-#define DIGITAL6_DEFAULT_STATE           1
+#define DIGITAL6_DEFAULT_STATE           HIGH
 #endif
 
 #ifndef DIGITAL7_PIN
@@ -370,7 +361,7 @@
 #endif
 
 #ifndef DIGITAL7_DEFAULT_STATE
-#define DIGITAL7_DEFAULT_STATE           1
+#define DIGITAL7_DEFAULT_STATE           HIGH
 #endif
 
 #ifndef DIGITAL8_PIN
@@ -382,7 +373,16 @@
 #endif
 
 #ifndef DIGITAL8_DEFAULT_STATE
-#define DIGITAL8_DEFAULT_STATE           1
+#define DIGITAL8_DEFAULT_STATE           HIGH
+#endif
+
+//------------------------------------------------------------------------------
+// Dummy sensor, implementing some of the magnitudes
+// Enable support by passing DUMMY_SENSOR_SUPPORT=1 build flag
+//------------------------------------------------------------------------------
+
+#ifndef DUMMY_SENSOR_SUPPORT
+#define DUMMY_SENSOR_SUPPORT            0
 #endif
 
 //------------------------------------------------------------------------------
@@ -662,13 +662,23 @@
 #define GEIGER_INTERRUPT_MODE           RISING  // RISING, FALLING, CHANGE
 #endif
 
-#define GEIGER_DEBOUNCE                 25      // Do not register events within less than 25 millis.
-                                                // Value derived here: Debounce time 25ms, because https://github.com/Trickx/espurna/wiki/Geiger-counter
+#ifndef GEIGER_DEBOUNCE
+#define GEIGER_DEBOUNCE                 25      // (milliseconds) Do not register events within less than 25 millis.
+#endif
+                                                // See https://github.com/Trickx/espurna/wiki/Geiger-counter
 
+#ifndef GEIGER_CPM2SIEVERT
 #define GEIGER_CPM2SIEVERT              240     // CPM to µSievert per hour conversion factor
+#endif
                                                 // Typically the literature uses the invers, but I find an integer type more convienient.
+
+#ifndef GEIGER_REPORT_SIEVERTS
 #define GEIGER_REPORT_SIEVERTS          1       // Enabler for local dose rate reports in µSv/h
+#endif
+
+#ifndef GEIGER_REPORT_CPM
 #define GEIGER_REPORT_CPM               1       // Enabler for local dose rate reports in counts per minute
+#endif
 
 //------------------------------------------------------------------------------
 // GUVAS12SD UV Sensor (analog)
@@ -793,12 +803,9 @@
 #define MHZ19_SUPPORT                   0
 #endif
 
-#ifndef MHZ19_RX_PIN
-#define MHZ19_RX_PIN                    13
-#endif
-
-#ifndef MHZ19_TX_PIN
-#define MHZ19_TX_PIN                    15
+#ifndef MHZ19_PORT
+#define MHZ19_PORT                      1     // By default, use the first port
+                                              // (needs `UART[1-3]_BAUDRATE 9600`)
 #endif
 
 //------------------------------------------------------------------------------
@@ -857,12 +864,20 @@
 #define NTC_DELAY                       0       // Delay between samples in micros
 #endif
 
-#ifndef NTC_R_UP
-#define NTC_R_UP                        0       // Resistor upstream, set to 0 if none
+#ifndef NTC_INPUT_VOLTAGE
+#define NTC_INPUT_VOLTAGE               3.3     // Actual voltage that is connected to the ADC
 #endif
 
 #ifndef NTC_R_DOWN
-#define NTC_R_DOWN                      10000   // Resistor downstream, set to 0 if none
+#define NTC_R_DOWN                      10000   // (Ohm) Resistor DOWN, NTC is connected to the voltage
+                                                // [V]─NTC─┬─R_DOWN─[GND]
+                                                //       [ADC]
+#endif
+
+#ifndef NTC_R_UP
+#define NTC_R_UP                        0       // (Ohm) Resistor UP, NTC is connected to the ground
+                                                // [V]─R_UP─┬─NTC─[GND]
+                                                //        [ADC]
 #endif
 
 #ifndef NTC_T0
@@ -878,12 +893,31 @@
 #endif
 
 //------------------------------------------------------------------------------
+// PM1006 sensor
+// Enable support by passing PM1006_SUPPORT=1 build flag
+//------------------------------------------------------------------------------
+
+#ifndef PM1006_SUPPORT
+#define PM1006_SUPPORT                    0
+#endif
+
+#ifndef PM1006_PORT
+#define PM1006_PORT                       1    // By default, use the first port
+                                               // (needs `UART[1-3]_BAUDRATE 9600`)
+#endif
+
+//------------------------------------------------------------------------------
 // Particle Monitor based on Plantower PMS
 // Enable support by passing PMSX003_SUPPORT=1 build flag
 //------------------------------------------------------------------------------
 
 #ifndef PMSX003_SUPPORT
 #define PMSX003_SUPPORT                 0
+#endif
+
+#ifndef PMS_PORT
+#define PMS_PORT                        1     // By default, use the first port
+                                              // (needs `UART[1-3]_BAUDRATE 9600`)
 #endif
 
 #ifndef PMS_TYPE
@@ -895,22 +929,6 @@
 // The PMS's fan will stop working on sleeping cycle, and will wake up on reading cycle.
 #ifndef PMS_SMART_SLEEP
 #define PMS_SMART_SLEEP                 0
-#endif
-
-#ifndef PMS_USE_SOFT
-#define PMS_USE_SOFT                    0       // If PMS_USE_SOFT == 1, DEBUG_SERIAL_SUPPORT must be 0
-#endif
-
-#ifndef PMS_RX_PIN
-#define PMS_RX_PIN                      13      // Software serial RX GPIO (if PMS_USE_SOFT == 1)
-#endif
-
-#ifndef PMS_TX_PIN
-#define PMS_TX_PIN                      15      // Software serial TX GPIO (if PMS_USE_SOFT == 1)
-#endif
-
-#ifndef PMS_HW_PORT
-#define PMS_HW_PORT                     Serial  // Hardware serial port (if PMS_USE_SOFT == 0)
 #endif
 
 //------------------------------------------------------------------------------
@@ -946,22 +964,9 @@
 #define PZEM004T_SUPPORT                0
 #endif
 
-#ifndef PZEM004T_USE_SOFT
-#define PZEM004T_USE_SOFT               0       // By default, use Hardware serial with GPIO15 (TX) and GPIO13 (RX)
-                                                // (but, make sure to change DEBUG_PORT to Serial1 or set DEBUG_SERIAL_SUPPORT to 0)
-#endif
-
-#ifndef PZEM004T_RX_PIN
-#define PZEM004T_RX_PIN                 13      // Serial RX GPIO (if PZEM004T_USE_SOFT == 1, creates a SoftwareSerial object)
-#endif
-
-#ifndef PZEM004T_TX_PIN
-#define PZEM004T_TX_PIN                 15      // Serial TX GPIO (if PZEM004T_USE_SOFT == 1, creates a SoftwareSerial object)
-#endif
-
-#ifndef PZEM004T_HW_PORT
-#define PZEM004T_HW_PORT                Serial  // Hardware serial port (if PZEM004T_USE_SOFT == 0)
-                                                // ESP8266: Serial1 does not allow receiving data, no point in changing this setting
+#ifndef PZEM004T_PORT
+#define PZEM004T_PORT                   1       // By default, use the first port
+                                                // (needs `UART[1-3]_BAUDRATE 9600`)
 #endif
 
 #ifndef PZEM004T_READ_INTERVAL
@@ -1003,22 +1008,9 @@
 #define PZEM004TV30_ADDRESS                0xF8    // Default: factory value
 #endif
 
-#ifndef PZEM004TV30_USE_SOFT
-#define PZEM004TV30_USE_SOFT               0       // By default, use Hardware serial with GPIO15 (TX) and GPIO13 (RX)
-                                                   // (but, make sure to change DEBUG_PORT to Serial1 or set DEBUG_SERIAL_SUPPORT to 0)
-#endif
-
-#ifndef PZEM004TV30_HW_PORT
-#define PZEM004TV30_HW_PORT                Serial  // Hardware serial port (if PZEM004TV30_USE_SOFT == 0)
-                                                   // ESP8266: Serial1 does not allow receiving data, no point in changing this setting
-#endif
-
-#ifndef PZEM004TV30_RX_PIN
-#define PZEM004TV30_RX_PIN                 13      // Serial RX GPIO (if PZEM004T_USE_SOFT == 1, creates a SoftwareSerial object)
-#endif
-
-#ifndef PZEM004TV30_TX_PIN
-#define PZEM004TV30_TX_PIN                 15      // Serial TX GPIO (if PZEM004T_USE_SOFT == 1, creates a SoftwareSerial object)
+#ifndef PZEM004TV30_PORT
+#define PZEM004TV30_PORT                   1      // By default, use the first port
+                                                  // (needs `UART[1-3]_BAUDRATE 9600`)
 #endif
 
 #ifndef PZEM004TV30_DEBUG
@@ -1034,12 +1026,9 @@
 #define SDS011_SUPPORT                   0
 #endif
 
-#ifndef SDS011_RX_PIN
-#define SDS011_RX_PIN                    14
-#endif
-
-#ifndef SDS011_TX_PIN
-#define SDS011_TX_PIN                    12
+#ifndef SDS011_PORT
+#define SDS011_PORT                      1   // By default, use the first port
+                                             // (needs `UART[1-3]_BAUDRATE 9600`)
 #endif
 
 //------------------------------------------------------------------------------
@@ -1051,12 +1040,9 @@
 #define SENSEAIR_SUPPORT                0
 #endif
 
-#ifndef SENSEAIR_RX_PIN
-#define SENSEAIR_RX_PIN                 0
-#endif
-
-#ifndef SENSEAIR_TX_PIN
-#define SENSEAIR_TX_PIN                 2
+#ifndef SENSEAIR_PORT
+#define SENSEAIR_PORT                   1    // By default, use the first port
+                                             // (needs `UART[1-3]_BAUDRATE 9600`)
 #endif
 
 //------------------------------------------------------------------------------
@@ -1094,12 +1080,9 @@
 #define SM300D2_SUPPORT                   0
 #endif
 
-#ifndef SM300D2_RX_PIN
-#define SM300D2_RX_PIN                    13
-#endif
-
-#ifndef SM300D2_BAUDRATE
-#define SM300D2_BAUDRATE                  9600
+#ifndef SM300D2_PORT
+#define SM300D2_PORT                      1     // By default, use the first port
+                                                // (needs `UART[1-3]_BAUDRATE 9600`)
 #endif
 
 //------------------------------------------------------------------------------
@@ -1149,12 +1132,9 @@
 #define T6613_SUPPORT                   0
 #endif
 
-#ifndef T6613_RX_PIN
-#define T6613_RX_PIN                    4
-#endif
-
-#ifndef T6613_TX_PIN
-#define T6613_TX_PIN                    5
+#ifndef T6613_PORT
+#define T6613_PORT                      1    // By default, use the first port
+                                             // (needs `UART[1-3]_BAUDRATE 9600`)
 #endif
 
 //------------------------------------------------------------------------------
@@ -1179,22 +1159,26 @@
 #define V9261F_SUPPORT                  0
 #endif
 
-#ifndef V9261F_PIN
-#define V9261F_PIN                      2       // TX pin from the V9261F
+#ifndef V9261F_PORT
+#define V9261F_PORT                     1       // By default, use the first port
+                                                // (needs `UART[1-3]_BAUDRATE 4800` and `UART[1-3]_INVERT 1`)
 #endif
 
-#ifndef V9261F_PIN_INVERSE
-#define V9261F_PIN_INVERSE              1       // Signal is inverted
-#endif
-
+#ifndef V9261F_SYNC_INTERVAL
 #define V9261F_SYNC_INTERVAL            600     // Sync signal length (ms)
-#define V9261F_BAUDRATE                 4800    // UART baudrate
+#endif
 
-// Default ratios
-#define V9261F_CURRENT_FACTOR           79371434.0
+#ifndef V9261F_POWER_ACTIVE_FACTOR
+#define V9261F_POWER_ACTIVE_FACTOR      153699.0
+#endif
+
+#ifndef V9261F_VOLTAGE_FACTOR
 #define V9261F_VOLTAGE_FACTOR           4160651.0
-#define V9261F_POWER_FACTOR             153699.0
-#define V9261F_RPOWER_FACTOR            V9261F_CURRENT_FACTOR
+#endif
+
+#ifndef V9261F_CURRENT_FACTOR
+#define V9261F_CURRENT_FACTOR           79371434.0
+#endif
 
 //------------------------------------------------------------------------------
 // VEML6075 based power sensor
@@ -1276,12 +1260,9 @@
 #define EZOPH_SUPPORT                0
 #endif
 
-#ifndef EZOPH_RX_PIN
-#define EZOPH_RX_PIN                 13      // Software serial RX GPIO
-#endif
-
-#ifndef EZOPH_TX_PIN
-#define EZOPH_TX_PIN                 15      // Software serial TX GPIO
+#ifndef EZOPH_PORT
+#define EZOPH_PORT                   1       // By default, use the first port
+                                             // (needs `UART[1-3]_BAUDRATE 9600`)
 #endif
 
 #ifndef EZOPH_SYNC_INTERVAL
@@ -1346,6 +1327,47 @@
                                                                                            // 360 * 60 * 1000 milliseconds. By default, this is disabled.
 
 // -----------------------------------------------------------------------------
+// INA219
+// Enable support by passing INA219_SUPPORT=1 build flag
+// -----------------------------------------------------------------------------
+
+#ifndef INA219_SUPPORT
+#define INA219_SUPPORT                              0
+#endif
+
+#ifndef INA219_ADDRESS
+#define INA219_ADDRESS                              0x00 // 0x00 means auto
+#endif
+
+#ifndef INA219_OPERATING_MODE
+#define INA219_OPERATING_MODE                       SHUNT_AND_BUS_CONTINUOUS
+#endif
+
+#ifndef INA219_SHUNT_MODE
+#define INA219_SHUNT_MODE                           BIT_MODE_12
+#endif
+
+#ifndef INA219_SHUNT_RESISTANCE
+#define INA219_SHUNT_RESISTANCE                     0.1 // Ohms
+#endif
+
+#ifndef INA219_BUS_MODE
+#define INA219_BUS_MODE                             BIT_MODE_12
+#endif
+
+#ifndef INA219_BUS_RANGE
+#define INA219_BUS_RANGE                            BRNG_32
+#endif
+
+#ifndef INA219_GAIN
+#define INA219_GAIN                                 PG_320
+#endif
+
+#ifndef INA219_MAX_EXPECTED_CURRENT
+#define INA219_MAX_EXPECTED_CURRENT                 2.0 // A
+#endif
+
+// -----------------------------------------------------------------------------
 // ADC
 // -----------------------------------------------------------------------------
 
@@ -1392,15 +1414,36 @@
 // Configuration helpers
 // =============================================================================
 
+// UART support for sensors using serial port
+// (notice that baudrate and mode config is set *externally*)
+#if (\
+    CSE7766_SUPPORT || \
+    MHZ19_SUPPORT || \
+    PM1006_SUPPORT || \
+    PMSX003_SUPPORT || \
+    PZEM004T_SUPPORT || \
+    SENSEAIR_SUPPORT || \
+    SDS011_SUPPORT || \
+    SM300D2_SUPPORT || \
+    T6613_SUPPORT || \
+    V9261F_SUPPORT || \
+    EZOPH_SUPPORT || \
+    PZEM004TV30_SUPPORT \
+)
+#undef UART_SUPPORT
+#define UART_SUPPORT 1
+#endif
+
 // I2C support when sensor needs it
 #if ( ADE7953_SUPPORT || \
     AM2320_SUPPORT || \
     BH1750_SUPPORT || \
+    BME680_SUPPORT || \
     BMP180_SUPPORT || \
     BMX280_SUPPORT || \
-    BME680_SUPPORT || \
     EMON_ADC121_SUPPORT || \
     EMON_ADS1X15_SUPPORT || \
+    INA219_SUPPORT || \
     SHT3X_I2C_SUPPORT || \
     SI1145_SUPPORT || \
     SI7021_SUPPORT || \
@@ -1433,13 +1476,14 @@
     AM2320_SUPPORT || \
     ANALOG_SUPPORT || \
     BH1750_SUPPORT || \
-    BMP180_SUPPORT || \
     BME680_SUPPORT || \
+    BMP180_SUPPORT || \
     BMX280_SUPPORT || \
     CSE7766_SUPPORT || \
     DALLAS_SUPPORT || \
     DHT_SUPPORT || \
     DIGITAL_SUPPORT || \
+    DUMMY_SENSOR_SUPPORT || \
     ECH1560_SUPPORT || \
     EMON_ADC121_SUPPORT || \
     EMON_ADS1X15_SUPPORT || \
@@ -1448,15 +1492,19 @@
     EZOPH_SUPPORT || \
     GEIGER_SUPPORT || \
     GUVAS12SD_SUPPORT || \
+    HDC1080_SUPPORT || \
     HLW8012_SUPPORT || \
+    INA219_SUPPORT || \
     LDR_SUPPORT || \
     MAX6675_SUPPORT || \
     MHZ19_SUPPORT || \
     MICS2710_SUPPORT || \
     MICS5525_SUPPORT || \
     NTC_SUPPORT || \
+    PM1006_SUPPORT || \
     PMSX003_SUPPORT || \
     PULSEMETER_SUPPORT || \
+    PZEM004TV30_SUPPORT || \
     PZEM004T_SUPPORT || \
     SDS011_SUPPORT || \
     SENSEAIR_SUPPORT || \
@@ -1470,9 +1518,7 @@
     TMP3X_SUPPORT || \
     V9261F_SUPPORT || \
     VEML6075_SUPPORT || \
-    VL53L1X_SUPPORT || \
-    HDC1080_SUPPORT || \
-    PZEM004TV30_SUPPORT \
+    VL53L1X_SUPPORT \
 )
 #endif
 

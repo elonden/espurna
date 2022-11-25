@@ -17,7 +17,6 @@ Copyright (C) 2019 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 
 #include <Arduino.h>
 #include <coredecls.h>
-#include <Ticker.h>
 
 #include <ctime>
 #include <errno.h>
@@ -32,8 +31,6 @@ static_assert(
     "lwip must be configured with SNTP_SERVER_DNS"
 );
 
-#include "config/buildtime.h"
-
 #include "ntp.h"
 #include "ntp_timelib.h"
 #include "utils.h"
@@ -42,11 +39,13 @@ static_assert(
 namespace espurna {
 namespace ntp {
 namespace {
-namespace build {
 
-// not strictly necessary, but allow ::time() to return something else than 0
-// (but, still report as 'not synced' to the outside APIs related to time)
-static constexpr time_t InitialTimestamp { __UNIX_TIMESTAMP__ };
+template <typename T>
+T randomizeDuration(T base, T offset) {
+    return T(::randomNumber(base.count(), (base + offset).count()));
+}
+
+namespace build {
 
 // per the lwip recommendations, we delay the actual sntp app start
 // by default, this is expected to be `LWIP_RAND % 5000` (aka [0...5) seconds)
@@ -85,14 +84,6 @@ constexpr bool dhcp() {
 } // namespace build
 
 namespace settings {
-namespace internal {
-
-template <typename T>
-T randomizeDuration(T base, T offset) {
-    return T(::randomNumber(base.count(), (base + offset).count()));
-}
-
-} // namespace internal
 
 espurna::duration::Seconds startDelay() {
     return std::clamp(
@@ -101,7 +92,7 @@ espurna::duration::Seconds startDelay() {
 }
 
 espurna::duration::Seconds randomStartDelay() {
-    return internal::randomizeDuration(startDelay(), build::StartRandomOffset);
+    return randomizeDuration(startDelay(), build::StartRandomOffset);
 }
 
 espurna::duration::Seconds updateInterval() {
@@ -111,7 +102,7 @@ espurna::duration::Seconds updateInterval() {
 }
 
 espurna::duration::Seconds randomUpdateInterval() {
-    return internal::randomizeDuration(updateInterval(), build::UpdateRandomOffset);
+    return randomizeDuration(updateInterval(), build::UpdateRandomOffset);
 }
 
 // as either DNS name or IP address
@@ -143,30 +134,38 @@ void dhcp(bool value) {
 
 namespace internal {
 
-espurna::duration::Seconds start_delay { build::StartDelay };
-espurna::duration::Seconds update_interval { build::UpdateInterval };
+duration::Seconds start_delay { build::StartDelay };
+duration::Seconds update_interval { build::UpdateInterval };
 
 } // namespace internal
-
-} // namespace
-} // namespace ntp
-} // namespace espurna
 
 // With esp8266's lwipopts.h, we are allowed to configure SNTP delays at runtime
 // These are weak, if we don't redefine it will fallback to Core's default ones
 // (notice that our settings are in *seconds*, while SNTP expects *milliseconds*)
 
-static_assert(sizeof(decltype(::espurna::ntp::internal::start_delay)::rep) <= sizeof(uint32_t), "");
-static_assert(sizeof(decltype(::espurna::ntp::internal::update_interval)::rep) <= sizeof(uint32_t), "");
+static_assert(sizeof(decltype(internal::start_delay)::rep) <= sizeof(uint32_t), "");
+static_assert(sizeof(decltype(internal::update_interval)::rep) <= sizeof(uint32_t), "");
+
+uint32_t start_delay() {
+    return duration::Milliseconds(internal::start_delay).count();
+}
+
+uint32_t update_interval() {
+    return duration::Milliseconds(internal::update_interval).count();
+}
+
+} // namespace
+} // namespace ntp
+} // namespace espurna
 
 // aka `SNTP_STARTUP_DELAY_FUNC`
 uint32_t sntp_startup_delay_MS_rfc_not_less_than_60000() {
-    return espurna::duration::Milliseconds(::espurna::ntp::internal::start_delay).count();
+    return espurna::ntp::start_delay();
 }
 
 // aka `SNTP_UPDATE_DELAY`
 uint32_t sntp_update_delay_MS_rfc_not_less_than_15000() {
-    return espurna::duration::Milliseconds(::espurna::ntp::internal::update_interval).count();
+    return espurna::ntp::update_interval();
 }
 
 // -----------------------------------------------------------------------------
@@ -174,17 +173,6 @@ uint32_t sntp_update_delay_MS_rfc_not_less_than_15000() {
 namespace espurna {
 namespace ntp {
 namespace {
-
-bool setTimestamp(time_t ts) {
-    const timeval tv {
-        .tv_sec = ts,
-        .tv_usec = 0
-    };
-
-    return EINVAL != settimeofday(&tv, nullptr);
-}
-
-namespace internal {
 
 struct Status {
     Status() = default;
@@ -206,6 +194,18 @@ private:
     bool _synced { false };
     time_t _timestamp { 0 };
 };
+
+
+bool setTimestamp(time_t ts) {
+    const timeval tv {
+        .tv_sec = ts,
+        .tv_usec = 0
+    };
+
+    return EINVAL != settimeofday(&tv, nullptr);
+}
+
+namespace internal {
 
 Status status;
 String server;
@@ -379,21 +379,21 @@ time_t now() {
 #if WEB_SUPPORT
 namespace web {
 
-bool onKeyCheck(const char * key, JsonVariant&) {
-    return (strncmp(key, "ntp", 3) == 0);
+bool onKeyCheck(StringView key, const JsonVariant&) {
+    return espurna::settings::query::samePrefix(key, STRING_VIEW("ntp"));
 }
 
 void onVisible(JsonObject& root) {
-    wsPayloadModule(root, "ntp");
+    wsPayloadModule(root, PSTR("ntp"));
 }
 
 void onData(JsonObject& root) {
-    root["ntpStatus"] = ::espurna::ntp::internal::status.synced();
+    root["ntpStatus"] = synced();
 }
 
 void onConnected(JsonObject& root) {
-    root["ntpServer"] = ::espurna::ntp::settings::server();
-    root["ntpTZ"] = ::espurna::ntp::settings::tz();
+    root["ntpServer"] = settings::server();
+    root["ntpTZ"] = settings::tz();
 }
 
 } // namespace web
@@ -485,71 +485,97 @@ void report(Print& out) {
     }
 }
 
-void setup() {
-    terminalRegisterCommand(F("NTP"), [](::terminal::CommandContext&& ctx) {
-        if (synced()) {
-            report(ctx.output);
-            terminalOK(ctx);
-            return;
-        }
+namespace commands {
 
-        terminalError(ctx, F("NTP not synced"));
-    });
+PROGMEM_STRING(Ntp, "NTP");
 
-    terminalRegisterCommand(F("NTP.SYNC"), [](::terminal::CommandContext&& ctx) {
-        if (synced()) {
-            sntp_stop();
-            sntp_init();
-            terminalOK(ctx);
-            return;
-        }
-
-        terminalError(ctx, F("NTP waiting for initial sync"));
-    });
-
-    // TODO: strptime & mktime is around ~3.7Kb
-#if 1
-    terminalRegisterCommand(F("NTP.SETTIME"), [](::terminal::CommandContext&& ctx) {
-        if (ctx.argv.size() != 2) {
-            terminalError(ctx, F("NTP.SETTIME <TIME>"));
-            return;
-        }
-
-        auto value = parse::timestamp(ctx.argv[1]);
-        if (value && setTimestamp(value.timestamp())) {
-            internal::status.update(value.timestamp());
-            terminalOK(ctx);
-            return;
-        }
-
-        terminalError(ctx, F("Invalid timestamp"));
-    });
-#else
-    terminalRegisterCommand(F("NTP.SETTIME"), [](::terminal::CommandContext&& ctx) {
-        if (ctx.argv.size() != 2) {
-            terminalError(ctx, F("NTP.SETTIME <TIME>"));
-            return;
-        }
-
-        const char* const fmt = (ctx.argv[1].endsWith("Z"))
-            ? "%Y-%m-%dT%H:%M:%SZ" : "%s";
-
-        tm out{};
-        if (strptime(ctx.argv[1].c_str(), fmt, &out) != nullptr) {
-            terminalError(ctx, F("Invalid time"));
-            return;
-        }
-
-        ctx.output.printf_P(PSTR("Setting time to %s\n"),
-            datetime(&out).c_str());
-
-        auto ts = mktime(&out);
-        setTimestamp(ts);
-        internal::status.update(ts);
-
+void ntp(::terminal::CommandContext&& ctx) {
+    if (synced()) {
+        report(ctx.output);
         terminalOK(ctx);
-    });
+        return;
+    }
+
+    terminalError(ctx, F("NTP not synced"));
+}
+
+PROGMEM_STRING(Sync, "NTP.SYNC");
+
+void sync(::terminal::CommandContext&& ctx) {
+    if (synced()) {
+        sntp_stop();
+        sntp_init();
+        terminalOK(ctx);
+        return;
+    }
+
+    terminalError(ctx, F("NTP waiting for initial sync"));
+}
+
+PROGMEM_STRING(Set, "NTP.SET");
+
+[[gnu::unused]]
+void set_simple(::terminal::CommandContext&& ctx) {
+    if (ctx.argv.size() != 2) {
+        terminalError(ctx, F("NTP.SET <TIME>"));
+        return;
+    }
+
+    auto value = parse::timestamp(ctx.argv[1]);
+    if (value && setTimestamp(value.timestamp())) {
+        internal::status.update(value.timestamp());
+        terminalOK(ctx);
+        return;
+    }
+
+    terminalError(ctx, F("Invalid timestamp"));
+}
+
+// TODO: strptime & mktime is around ~3.7Kb
+[[gnu::unused]]
+void set_strptime(::terminal::CommandContext&& ctx) {
+    if (ctx.argv.size() != 2) {
+        terminalError(ctx, F("NTP.SET <TIME>"));
+        return;
+    }
+
+    const char* const fmt = (ctx.argv[1].endsWith("Z"))
+        ? "%Y-%m-%dT%H:%M:%SZ" : "%s";
+
+    tm out{};
+    if (strptime(ctx.argv[1].c_str(), fmt, &out) != nullptr) {
+        terminalError(ctx, F("Invalid time"));
+        return;
+    }
+
+    ctx.output.printf_P(PSTR("Setting time to %s\n"),
+        datetime(&out).c_str());
+
+    auto ts = mktime(&out);
+    setTimestamp(ts);
+    internal::status.update(ts);
+
+    terminalOK(ctx);
+}
+
+void set_time(::terminal::CommandContext&& ctx) {
+#if 1
+    set_simple(std::move(ctx));
+#else
+    set_strptime(std::move(ctx));
 #endif
+}
+
+static constexpr ::terminal::Command List[] PROGMEM {
+    {Ntp, ntp},
+    {Sync, sync},
+    {Set, set_time},
+};
+
+} // namespace commands
+
+void setup() {
+    espurna::terminal::add(commands::List);
 }
 
 } // namespace terminal
@@ -565,7 +591,7 @@ void report() {
     }
 
     const auto info = makeInfo();
-    DEBUG_MSG_P(PSTR("[NTP] Server    %s\n"), internal::server.c_str());
+    DEBUG_MSG_P(PSTR("[NTP] Server    %s\n"), ntp::internal::server.c_str());
     DEBUG_MSG_P(PSTR("[NTP] Last Sync %s (UTC)\n"), info.sync.c_str());
     DEBUG_MSG_P(PSTR("[NTP] UTC Time  %s\n"), info.utc.c_str());
 
@@ -575,11 +601,17 @@ void report() {
     }
 }
 
+void schedule_now() {
+    ::espurnaRegisterOnceUnique(report);
+}
+
 } // namespace debug
 #endif
 
 namespace tick {
 
+// Never allow delays less than a second, or greater than a minute
+// (ref. Non-OS 3.1.1 os_timer_arm, actual minimal value is 5ms)
 static constexpr espurna::duration::Seconds OffsetMin { 1 };
 static constexpr espurna::duration::Seconds OffsetMax { 60 };
 
@@ -588,7 +620,7 @@ using Callbacks = std::forward_list<NtpTickCallback>;
 namespace internal {
 
 Callbacks callbacks;
-Ticker timer;
+timer::SystemTimer timer;
 
 } // namespace internal
 
@@ -633,27 +665,15 @@ void callback() {
     schedule(OffsetMax - espurna::duration::Seconds(local_tm.tm_sec));
 }
 
-void schedule(espurna::duration::Seconds offset) {
-    static bool scheduled { false };
-
-    // Never allow delays less than a second, or greater than a minute
-    // (ref. Non-OS 3.1.1 os_timer_arm, actual minimal value is 5ms)
-    if (!scheduled) {
-        scheduled = true;
-        internal::timer.once_scheduled(
-            std::clamp(offset, OffsetMin, OffsetMax).count(),
-            []() {
-                scheduled = false;
-                callback();
-            });
-    }
+void schedule_now() {
+    ::espurnaRegisterOnceUnique(callback);
 }
 
-void init() {
-    static bool initialized { false };
-    if (!initialized) {
-        schedule_function(callback);
-        initialized = true;
+void schedule(espurna::duration::Seconds offset) {
+    if (!internal::timer) {
+        internal::timer.once(
+            std::clamp(offset, OffsetMin, OffsetMax),
+            schedule_now);
     }
 }
 
@@ -661,13 +681,13 @@ void init() {
 
 void onSystemTimeSynced() {
     internal::status.update(::time(nullptr));
-    tick::init();
+    tick::schedule_now();
 
 #if WEB_SUPPORT
     wsPost(web::onData);
 #endif
 #if DEBUG_SUPPORT
-    schedule_function(debug::report);
+    debug::schedule_now();
 #endif
 }
 
@@ -681,22 +701,23 @@ void convertLegacyOffsets() {
     bool dst { true };
     int offset { 60 };
 
-    ::settings::internal::foreach([&](::settings::kvs_type::KeyValueResult&& kv) {
-        using namespace ::settings::internal;
-        const auto key = kv.key.read();
-        if (key == F("ntpTZ")) {
-            save = false;
-        } else if (key == F("ntpOffset")) {
-            offset = convert<int>(kv.value.read());
-            found = true;
-        } else if (key == F("ntpDST")) {
-            dst = convert<bool>(kv.value.read());
-            found = true;
-        } else if (key == F("ntpRegion")) {
-            europe = (0 == convert<int>(kv.value.read()));
-            found = true;
-        }
-    });
+    espurna::settings::foreach(
+        [&](espurna::settings::kvs_type::KeyValueResult&& kv) {
+            using namespace espurna::settings::internal;
+            const auto key = kv.key.read();
+            if (key == F("ntpTZ")) {
+                save = false;
+            } else if (key == F("ntpOffset")) {
+                offset = convert<int>(kv.value.read());
+                found = true;
+            } else if (key == F("ntpDST")) {
+                dst = convert<bool>(kv.value.read());
+                found = true;
+            } else if (key == F("ntpRegion")) {
+                europe = (0 == convert<int>(kv.value.read()));
+                found = true;
+            }
+        });
 
     if (save && found) {
         // XXX: only expect offsets in hours
@@ -730,11 +751,11 @@ void convertLegacyOffsets() {
 void configure() {
     // Ignore or accept the DHCP SNTP option
     // When enabled, it is possible that lwip will replace the NTP server pointer from under us
-    sntp_servermode_dhcp(settings::dhcp());
+    sntp_servermode_dhcp(espurna::ntp::settings::dhcp());
 
     // Note: TZ_... provided by the Core are already wrapped with PSTR(...)
     // but, String() already handles every char pointer as a flash-string
-    auto cfg_tz = settings::tz();
+    auto cfg_tz = espurna::ntp::settings::tz();
     const char* active_tz = getenv("TZ");
 
     bool changed = cfg_tz != active_tz;
@@ -747,7 +768,7 @@ void configure() {
         tzset();
     }
 
-    const auto cfg_server = settings::server();
+    const auto cfg_server = espurna::ntp::settings::server();
     const auto active_server = activeServer();
     changed = (cfg_server != active_server) || changed;
 
@@ -768,12 +789,12 @@ void onStationModeGotIP(WiFiEventStationModeGotIP) {
         return;
     }
 
-    auto server = activeServer();
+    const auto server = activeServer();
     if (!server.length()) {
         DEBUG_MSG_P(PSTR("[NTP] Updating `ntpDhcp` to ignore the DHCP values\n"));
         settings::dhcp(false);
         sntp_servermode_dhcp(0);
-        schedule_function(configure);
+        ::espurnaRegisterOnce(configure);
         return;
     }
 
@@ -790,10 +811,6 @@ void setup() {
     internal::update_interval = settings::randomUpdateInterval();
     DEBUG_MSG_P(PSTR("[NTP] Startup delay: %u (s), Update interval: %u (s)\n"),
         internal::start_delay.count(), internal::update_interval.count());
-
-    // start up with some reasonable timestamp already available
-    // (notice that this may not be in UTC, if the machine used to build this has a local timezone set)
-    setTimestamp(build::InitialTimestamp);
 
     // will be called every time after ntp syncs AND loop() finishes
     settimeofday_cb(onSystemTimeSynced);

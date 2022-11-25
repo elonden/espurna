@@ -36,12 +36,24 @@ void addServices() {
 #endif
 
 #if OTA_ARDUINOOTA_SUPPORT
-    if (MDNS.enableArduino(OTA_PORT, getAdminPass().length() > 0)) {
-        MDNS.addServiceTxt("arduino", "tcp", "app_name", getAppName());
-        MDNS.addServiceTxt("arduino", "tcp", "app_version", getVersion());
-        MDNS.addServiceTxt("arduino", "tcp", "build_date", buildTime());
-        MDNS.addServiceTxt("arduino", "tcp", "mac", getFullChipId());
-        MDNS.addServiceTxt("arduino", "tcp", "target_board", getBoardName());
+    // MDNS implementation has its weird way of accessing strings;
+    // can't pass `String`s directly and must use a char pointer
+    // to RAM so it could copy it for internal use via `strcpy`
+    // Since all we use here is build data exposed with `StringView`s,
+    // force everything in RAM first to avoid a runtime exception.
+    if (MDNS.enableArduino(OTA_PORT, systemPassword().length() > 0)) {
+        const auto app = buildApp();
+        MDNS.addServiceTxt("arduino", "tcp",
+            "app_name", String(app.name).c_str());
+        MDNS.addServiceTxt("arduino", "tcp",
+            "app_version", String(app.version).c_str());
+        MDNS.addServiceTxt("arduino", "tcp",
+            "build_date", String(app.build_time).c_str());
+
+        MDNS.addServiceTxt("arduino", "tcp",
+            "mac", String(systemChipId()).c_str());
+        MDNS.addServiceTxt("arduino", "tcp",
+            "target_board", String(systemDevice()).c_str());
 
         MDNS.addServiceTxt("arduino", "tcp", "mem_size",
                 String(static_cast<int>(ESP.getFlashChipRealSize() / 1024), 10));
@@ -54,7 +66,7 @@ void addServices() {
 }
 
 void start() {
-    auto hostname = getHostname();
+    const auto hostname = systemHostname();
     if (MDNS.begin(hostname)) {
         DEBUG_MSG_P(PSTR("[MDNS] Started with hostname %s\n"), hostname.c_str());
         addServices();
@@ -112,8 +124,8 @@ void mdnsServerSetup() {
     || defined(ARDUINO_ESP8266_RELEASE_2_7_3) \
     || defined(ARDUINO_ESP8266_RELEASE_2_7_4)
 
-    wifiRegister([](wifi::Event event) {
-        if ((event == wifi::Event::StationConnected) && !MDNS.isRunning()) {
+    wifiRegister([](espurna::wifi::Event event) {
+        if ((event == espurna::wifi::Event::StationConnected) && !MDNS.isRunning()) {
             mdns::start();
         }
     });

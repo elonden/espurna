@@ -20,6 +20,7 @@ Reimplementation of the Embedis storage format:
 #include "settings_helpers.h"
 #include "libs/TypeChecks.h"
 
+namespace espurna {
 namespace settings {
 namespace embedis {
 
@@ -380,6 +381,9 @@ public:
         } while (_state != State::End);
 
         if (need_erase) {
+            if ((start_pos + to_erase.size()) < need) {
+                return false;
+            }
             _raw_erase(start_pos, to_erase);
             start_pos += to_erase.size();
         }
@@ -409,8 +413,8 @@ public:
                 auto next_kv = _read_kv();
                 if (!next_kv) {
                     auto empty = Cursor::fromEnd(_storage, writer.begin() - 2, writer.begin());
-                    (--empty).write(0);
-                    (--empty).write(0);
+                    (--empty).write(0xff);
+                    (--empty).write(0xff);
                 }
             }
 
@@ -566,8 +570,8 @@ public:
 
         // same as set(), add empty key as padding
         auto empty = Cursor::fromEnd(_storage, new_pos - 2, new_pos);
-        (--empty).write(0);
-        (--empty).write(0);
+        (--empty).write(0xff);
+        (--empty).write(0xff);
 
         _storage.commit();
     }
@@ -657,3 +661,4 @@ return_result:
 
 } // namespace embedis
 } // namespace settings
+} // namespace espurna

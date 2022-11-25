@@ -85,7 +85,7 @@ bool enabled() {
 String hostname() {
     auto out = getSetting("alexaName", build::hostname());
     if (!out.length()) {
-        out = getHostname();
+        out = systemHostname();
     }
 
     return out;
@@ -105,11 +105,11 @@ void _alexaSettingsMigrate(int version) {
 // -----------------------------------------------------------------------------
 
 void _alexaWebSocketOnVisible(JsonObject& root) {
-    wsPayloadModule(root, "alexa");
+    wsPayloadModule(root, PSTR("alexa"));
 }
 
-bool _alexaWebSocketOnKeyCheck(const char * key, JsonVariant&) {
-    return (strncmp(key, "alexa", 5) == 0);
+bool _alexaWebSocketOnKeyCheck(espurna::StringView key, const JsonVariant&) {
+    return espurna::settings::query::samePrefix(key, STRING_VIEW("alexa"));
 }
 
 void _alexaWebSocketOnConnected(JsonObject& root) {
@@ -243,10 +243,13 @@ void alexaSetup() {
     #endif
 
     // Register wifi callback
-    wifiRegister([](wifi::Event event) {
-        if ((event == wifi::Event::StationConnected)
-            || (event == wifi::Event::StationDisconnected)) {
+    wifiRegister([](espurna::wifi::Event event) {
+        switch (event) {
+        case espurna::wifi::Event::StationConnected:
+        case espurna::wifi::Event::StationDisconnected:
             _alexaConfigure();
+        default:
+            break;
         }
     });
 

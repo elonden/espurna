@@ -22,13 +22,18 @@ set(COMMON_FLAGS
     -g
     -fno-common
     -funsigned-char
+    -DPROGMEM_STRING_ATTR=
     -DCORE_MOCK
     -DHOST_MOCK=1
     -DLWIP_IPV6=0
+    -Dmemcmp_P=memcmp
     -Dstrncasecmp_P=strncasecmp
 )
 
 set(ESPURNA_PATH ${CMAKE_SOURCE_DIR}/../../../ CACHE PATH "ESPurna source code repo root")
+
+# Make sure to generate compile_commands.json
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # PIO does not really make it easy to install packages outside of the 'platform' context,
 # so sharing these between a normal builder might not be an option. (...big TODO though)
@@ -53,7 +58,7 @@ target_compile_options(unity BEFORE PRIVATE
     -DUNITY_OUTPUT_COLOR
 )
 
-set(esp8266_version 9fcf14f81fa9be589530e9596b7c5a264dc81ee8)
+set(esp8266_version 313b3c07ecccbe6fee24aa9fa447c4aed16ca499)
 
 FetchContent_Declare(
     esp8266git
@@ -146,10 +151,11 @@ target_link_libraries(esp8266 PUBLIC common)
 add_library(terminal STATIC
     ${ESPURNA_PATH}/code/espurna/terminal_commands.cpp
     ${ESPURNA_PATH}/code/espurna/terminal_parsing.cpp
+    ${ESPURNA_PATH}/code/espurna/types.cpp
 )
 target_link_libraries(terminal PUBLIC esp8266)
 target_include_directories(terminal PUBLIC
-    ${ESPURNA_PATH}/code/espurna/
+    ${ESPURNA_PATH}/code/
 )
 target_compile_options(terminal PUBLIC
     ${COMMON_FLAGS}
@@ -177,4 +183,4 @@ function(build_tests)
     endforeach()
 endfunction()
 
-build_tests(basic settings terminal tuya url)
+build_tests(basic settings terminal tuya types url)

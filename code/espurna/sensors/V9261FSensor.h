@@ -7,12 +7,8 @@
 
 #pragma once
 
-#include <SoftwareSerial.h>
-
 #include "BaseEmonSensor.h"
-extern "C" {
-    #include "../libs/fs_math.h"
-}
+#include "../libs/fs_math.h"
 
 class V9261FSensor : public BaseEmonSensor {
 
@@ -32,82 +28,52 @@ class V9261FSensor : public BaseEmonSensor {
             MAGNITUDE_ENERGY
         };
 
-        V9261FSensor() {
-            _sensor_id = SENSOR_V9261F_ID;
-            _count = std::size(Magnitudes);
-            findAndAddEnergy(Magnitudes);
-        }
+        V9261FSensor() :
+            BaseEmonSensor(Magnitudes)
+        {}
 
-        // ---------------------------------------------------------------------
-
-        void setRX(unsigned char pin_rx) {
-            if (_pin_rx == pin_rx) return;
-            _pin_rx = pin_rx;
+        void setPort(Stream* port) {
+            _serial = port;
             _dirty = true;
-        }
-
-        void setInverted(bool inverted) {
-            if (_inverted == inverted) return;
-            _inverted = inverted;
-            _dirty = true;
-        }
-
-        // ---------------------------------------------------------------------
-
-        unsigned char getRX() {
-            return _pin_rx;
-        }
-
-        bool getInverted() {
-            return _inverted;
         }
 
         // ---------------------------------------------------------------------
         // Sensor API
         // ---------------------------------------------------------------------
 
+        unsigned char id() const override {
+            return SENSOR_V9261F_ID;
+        }
+
+        unsigned char count() const override {
+            return std::size(Magnitudes);
+        }
+
         // Initialization method, must be idempotent
-        void begin() {
-
+        void begin() override {
             if (!_dirty) return;
-
-            if (_serial) {
-                _serial.reset(nullptr);
-            }
-
-            _serial = std::make_unique<SoftwareSerial>(_pin_rx, -1, _inverted);
-            _serial->enableIntTx(false);
-            _serial->begin(V9261F_BAUDRATE);
-
+            _reading = false;
             _ready = true;
             _dirty = false;
-
         }
 
         // Descriptive name of the sensor
-        String description() {
-            char buffer[28];
-            snprintf(buffer, sizeof(buffer), "V9261F @ SwSerial(%u,NULL)", _pin_rx);
-            return String(buffer);
+        String description() const override {
+            return F("V9261F");
         }
 
-        // Descriptive name of the slot # index
-        String description(unsigned char index) {
-            return description();
-        };
-
         // Address of the sensor (it could be the GPIO or I2C address)
-        String address(unsigned char index) {
-            return String(_pin_rx);
+        String address(unsigned char) const override {
+            return String(V9261F_PORT, 10);
         }
 
         // Loop-like method, call it in your main loop
-        void tick() {
+        void tick() override {
             _read();
         }
 
         // Type for slot # index
-        unsigned char type(unsigned char index) {
+        unsigned char type(unsigned char index) const override {
             if (index < std::size(Magnitudes)) {
                 return Magnitudes[index].type;
             }
@@ -116,13 +82,13 @@ class V9261FSensor : public BaseEmonSensor {
         }
 
         // Current value for slot # index
-        double value(unsigned char index) {
+        double value(unsigned char index) override {
             if (index == 0) return _current;
             if (index == 1) return _voltage;
             if (index == 2) return _active;
             if (index == 3) return _reactive;
             if (index == 4) return _apparent;
-            if (index == 5) return _apparent > 0 ? 100 * _active / _apparent : 100;
+            if (index == 5) return _factor;
             if (index == 6) return _energy[0].asDouble();
             return 0;
         }
@@ -134,9 +100,7 @@ class V9261FSensor : public BaseEmonSensor {
             case 1:
                 return V9261F_VOLTAGE_FACTOR;
             case 2:
-                return V9261F_POWER_FACTOR;
-            case 3:
-                return V9261F_RPOWER_FACTOR;
+                return V9261F_POWER_ACTIVE_FACTOR;
             }
 
             return BaseEmonSensor::DefaultRatio;
@@ -154,9 +118,6 @@ class V9261FSensor : public BaseEmonSensor {
                 case 2:
                     _power_active_ratio = value;
                     break;
-                case 3:
-                    _power_reactive_ratio = value;
-                    break;
                 }
             }
         }
@@ -169,8 +130,6 @@ class V9261FSensor : public BaseEmonSensor {
                 return _voltage_ratio;
             case 2:
                 return _power_active_ratio;
-            case 3:
-                return _power_reactive_ratio;
             }
 
             return BaseEmonSensor::getRatio(index);
@@ -184,51 +143,53 @@ class V9261FSensor : public BaseEmonSensor {
 
         void _read() {
 
-            static unsigned char state = 0;
-            static unsigned long last = 0;
-            static unsigned long ts = 0;
-            static bool found = false;
-            static unsigned char index = 0;
-
-            if (state == 0) {
-
-                while (_serial->available()) {
-                    _serial->flush();
-                    found = true;
-                    ts = millis();
-                }
-
-                if (found && (millis() - ts > V9261F_SYNC_INTERVAL)) {
-                    _serial->flush();
-                    index = 0;
-                    state = 1;
-                }
-
-            } else if (state == 1) {
-
-                while (_serial->available()) {
-                    _serial->read();
-                    if (index++ >= 7) {
-                        _serial->flush();
-                        index = 0;
-                        state = 2;
+            // we are seeing the data request
+            if (_state == 0) {
+                const auto available = _serial->available();
+                if (available <= 0) {
+                    if (_found && (TimeSource::now() - _timestamp > SyncInterval)) {
+                        _index = 0;
+                        _state = 1;
                     }
+                    return;
                 }
 
-            } else if (state == 2) {
+                consumeAvailable(*_serial);
+                _found = true;
+                _timestamp = TimeSource::now();
 
-                while (_serial->available()) {
-                    _data[index] = _serial->read();
-                    if (index++ >= 19) {
-                        _serial->flush();
-                        ts = millis();
-                        state = 3;
-                    }
+            // ...which we just skip...
+            } else if (_state == 1) {
+
+                _index += consumeAvailable(*_serial);
+                if (_index++ >= 7) {
+                    _index = 0;
+                    _state = 2;
                 }
 
-            } else if (state == 3) {
+            // ...until we receive response...
+            } else if (_state == 2) {
 
-                if (_checksum()) {
+                const auto available = _serial->available();
+                if (available <= 0) {
+                    return;
+                }
+
+                _index += _serial->readBytes(&_data[_index], std::min(
+                    static_cast<size_t>(available), sizeof(_data)));
+                if (_index >= 19) {
+                    _timestamp = TimeSource::now();
+                    _state = 3;
+                }
+
+            // validate received data and wait for the next request -> response
+            // FE1104 25F2420069C1BCFF20670C38C05E4101 B6
+            // ^^^^^^                                       - HEAD byte, mask, number of values
+            //        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^      - u32 4 times
+            //                                         ^^   - CRC byte
+            } else if (_state == 3) {
+
+                if (_checksum(&_data[0], &_data[19]) == _data[19]) {
 
                     _active = (double) (
                         (_data[3]) +
@@ -237,12 +198,12 @@ class V9261FSensor : public BaseEmonSensor {
                         (_data[6] << 24)
                     ) / _power_active_ratio;
 
-                    _reactive = (double) (
-                        (_data[7]) +
-                        (_data[8] <<  8) +
-                        (_data[9] << 16) +
-                        (_data[10] << 24)
-                    ) / _power_reactive_ratio;
+                    // With known ratio, could also use this
+                    // _reactive = (double) (
+                    //     (_data[7]) +
+                    //     (_data[8] <<  8) +
+                    //     (_data[9] << 16) +
+                    //     (_data[10] << 24);
 
                     _voltage = (double) (
                         (_data[11]) +
@@ -259,62 +220,82 @@ class V9261FSensor : public BaseEmonSensor {
                     ) / _current_ratio;
 
                     if (_active < 0) _active = 0;
-                    if (_reactive < 0) _reactive = 0;
                     if (_voltage < 0) _voltage = 0;
                     if (_current < 0) _current = 0;
 
-                    _apparent = fs_sqrt(_reactive * _reactive + _active * _active);
+                    _apparent = _voltage * _current;
+                    _factor = ((_voltage > 0) && (_current > 0))
+                        ? (100 * _active / _voltage / _current)
+                        : 100;
 
-                    if (last > 0) {
-                        _energy[0] += sensor::Ws {
-                            static_cast<uint32_t>(_active * (millis() / last) / 1000)
-                        };
+                    if (_apparent > _active) {
+                        _reactive = fs_sqrt(_apparent * _apparent - _active * _active);
+                    } else {
+                        _reactive = 0;
                     }
-                    last = millis();
+
+                    const auto now = TimeSource::now();
+                    if (_reading) {
+                        using namespace espurna::sensor;
+                        const auto elapsed = std::chrono::duration_cast<espurna::duration::Seconds>(now - _last_reading);
+                        _energy[0] += WattSeconds(Watts{_active}, elapsed);
+                    }
+
+                    _reading = true;
+                    _last_reading = now;
 
                 }
 
-                ts = millis();
-                index = 0;
-                state = 4;
+                _timestamp = TimeSource::now();
+                _index = 0;
+                _state = 4;
 
-            } else if (state == 4) {
+            // ... by consuming everything until our clock runs out
+            } else if (_state == 4) {
 
-                while (_serial->available()) {
-                    _serial->flush();
-                    ts = millis();
-                }
-
-                if (millis() - ts > V9261F_SYNC_INTERVAL) {
-                    state = 1;
+                consumeAvailable(*_serial);
+                if (TimeSource::now() - _timestamp > SyncInterval) {
+                    _state = 1;
                 }
 
             }
 
         }
 
-        bool _checksum() {
-            unsigned char checksum = 0;
-            for (unsigned char i = 0; i < 19; i++) {
-                checksum = checksum + _data[i];
+        static uint8_t _checksum(const uint8_t* begin, const uint8_t* end) {
+            uint8_t out = 0;
+            for (auto it = begin; it != end; ++it) {
+                out += (*it);
             }
-            checksum = ~checksum + 0x33;
-            return checksum == _data[19];
+            out = ~out + 0x33;
+            return out;
         }
 
         // ---------------------------------------------------------------------
 
-        unsigned char _pin_rx { V9261F_PIN };
-        bool _inverted { V9261F_PIN_INVERSE };
-        std::unique_ptr<SoftwareSerial> _serial;
+        Stream* _serial { nullptr };
+
+        using TimeSource = espurna::time::CoreClock;
+        static constexpr auto SyncInterval = TimeSource::duration { V9261F_SYNC_INTERVAL };
 
         double _active { 0 };
         double _reactive { 0 };
-        double _voltage { 0 };
-        double _current { 0 };
         double _apparent { 0 };
 
-        unsigned char _data[24] {0};
+        double _voltage { 0 };
+        double _current { 0 };
+
+        double _factor { 0 };
+
+        TimeSource::time_point _last_reading;
+        TimeSource::time_point _timestamp;
+
+        int _state { 0 };
+        bool _found { false };
+        bool _reading { false };
+
+        uint8_t _data[24] {0};
+        size_t _index { 0 };
 
 };
 

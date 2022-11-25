@@ -10,41 +10,65 @@ Copyright (C) 2017-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #if I2C_SUPPORT
 
-#include <Wire.h>
-
 #if I2C_USE_BRZO
 #include <brzo_i2c.h>
+#else
+#include <Wire.h>
 #endif
 
 #include "i2c.h"
 
 #include <cstring>
+#include <bitset>
 
 // -----------------------------------------------------------------------------
 // Private
 // -----------------------------------------------------------------------------
 
-namespace {
+namespace espurna {
 namespace i2c {
+namespace {
 
 struct Bus {
     unsigned char sda { GPIO_NONE };
     unsigned char scl { GPIO_NONE };
+#if I2C_USE_BRZO
+    unsigned long frequency { 0 };
+#endif
 };
 
 namespace internal {
 
 Bus bus;
-unsigned int locked[16] = {0};
-#if I2C_USE_BRZO
-unsigned long sclFrequency = 0;
-#endif
 
-} // namespace
+} // namespace internal
+
+namespace lock {
+
+std::bitset<128> storage{};
+
+void reset(uint8_t address) {
+    storage.reset(address);
+}
+
+bool get(uint8_t address) {
+    return storage.test(address);
+}
+
+bool set(uint8_t address) {
+    if (!get(address)) {
+        storage.set(address);
+        return true;
+    }
+
+    return false;
+}
+
+} // namespace lock
 
 #if I2C_USE_BRZO
 void brzo_i2c_start_transaction(uint8_t address) {
-    ::brzo_i2c_start_transaction(address, internal::sclFrequency);
+    ::brzo_i2c_start_transaction(address, internal::bus.frequency);
 }
 #endif
 
@@ -56,6 +80,10 @@ constexpr unsigned char sda() {
 
 constexpr unsigned char scl() {
     return I2C_SCL_PIN;
+}
+
+constexpr bool performScanOnBoot() {
+    return I2C_PERFORM_SCAN == 1;
 }
 
 #if I2C_USE_BRZO
@@ -92,26 +120,79 @@ unsigned long sclFrequency() {
 
 } // namespace settings
 
-bool check(unsigned char address) {
+// make note that both APIs return integer status codes
+// success is 0, everything else depends on the implementation
+// for example, for our Wire it is:
+// - 4 if line is busy
+// - 2 if NACK happened when writing address
+// - 3 if NACK happened when writing data
+bool find(uint8_t address) {
 #if I2C_USE_BRZO
     i2c::start_brzo_transaction(address);
     brzo_i2c_ACK_polling(1000);
-    return brzo_i2c_end_transaction();
+    return 0 == brzo_i2c_end_transaction();
 #else
     Wire.beginTransmission(address);
-    return Wire.endTransmission();
+    return 0 == Wire.endTransmission();
 #endif
 }
 
-template <typename Callback>
-void scan(Callback&& callback) {
-    constexpr unsigned char AddressMin { 1 };
-    constexpr unsigned char AddressMax { 127 };
+template <typename T>
+uint8_t find(const uint8_t* begin, const uint8_t* end, T&& filter) {
+    for (const auto* it = begin; it != end; ++it) {
+        if (filter(*it) && find(*it)) {
+            return *it;
+        }
+    }
 
-    for (unsigned char address = AddressMin; address < AddressMax; ++address) {
-        if (i2c::check(address) == 0) {
+    return 0;
+}
+
+uint8_t find(const uint8_t* begin, const uint8_t* end) {
+    return find(begin, end, [](uint8_t) {
+        return true;
+    });
+}
+
+uint8_t findAndLock(const uint8_t* begin, const uint8_t* end) {
+    const auto address = find(begin, end, [](uint8_t address) {
+        return !lock::get(address);
+    });
+
+    if (address != 0) {
+        lock::set(address);
+    }
+
+    return address;
+}
+
+template <typename T>
+void scan(T&& callback) {
+    static constexpr uint8_t Min { 0x8 };
+    static constexpr uint8_t Max { 0x78 };
+    for (auto address = Min; address < Max; ++address) {
+        if (find(address)) {
             callback(address);
         }
+    }
+}
+
+void bootScan() {
+    String addresses;
+    scan([&](uint8_t address) {
+        if (addresses.length()) {
+            addresses += F(", ");
+        }
+
+
+        addresses += F("0x");
+        addresses += hexEncode(address);
+    });
+
+    if (addresses.length()) {
+        DEBUG_MSG_P(PSTR("[I2C] Found device(s): %s\n"), addresses.c_str());
+    } else {
+        DEBUG_MSG_P(PSTR("[I2C] No devices found\n"));
     }
 }
 
@@ -135,12 +216,12 @@ int clear(unsigned char sda, unsigned char scl) {
 
     // If it is held low the device cannot become the I2C master
     // I2C bus error. Could not clear SCL clock line held low
-    boolean scl_low = (digitalRead(scl) == LOW);
+    bool scl_low = (digitalRead(scl) == LOW);
     if (scl_low) {
         return 1;
     }
 
-    boolean sda_low = (digitalRead(sda) == LOW);
+    bool sda_low = (digitalRead(sda) == LOW);
     int clockCount = 20; // > 2x9 clock
 
     // While SDA is low for at most 20 cycles
@@ -215,14 +296,14 @@ void init() {
     internal::bus.sda = settings::sda();
     internal::bus.scl = settings::scl();
 
-    #if I2C_USE_BRZO
-        internal::sclFrequency = settings::sclFrequency();
-        brzo_i2c_setup(internal::bus.sda, internal::bus.scl, settings::cst());
-    #else
-        Wire.begin(internal::bus.sda, internal::bus.scl);
-    #endif
+#if I2C_USE_BRZO
+    internal::bus.frequency = settings::sclFrequency();
+    brzo_i2c_setup(internal::bus.sda, internal::bus.scl, settings::cst());
+#else
+    Wire.begin(internal::bus.sda, internal::bus.scl);
+#endif
 
-    DEBUG_MSG_P(PSTR("[I2C] Initialized with sda:GPIO%hhu scl:GPIO%hhu\n"),
+    DEBUG_MSG_P(PSTR("[I2C] Initialized SDA @ GPIO%hhu and SCL @ GPIO%hhu\n"),
             internal::bus.sda, internal::bus.scl);
 
 #if I2C_CLEAR_BUS
@@ -231,33 +312,61 @@ void init() {
 }
 
 #if TERMINAL_SUPPORT
+namespace terminal {
 
-void initTerminalCommands() {
-    terminalRegisterCommand(F("I2C.SCAN"), [](::terminal::CommandContext&& ctx) {
-        unsigned char devices { 0 };
-        i2c::scan([&](unsigned char address) {
-            ++devices;
-            ctx.output.printf("found 0x%02X\n", address);
-        });
+PROGMEM_STRING(Locked, "I2C.LOCKED");
 
-        if (devices) {
-            terminalOK(ctx);
-            return;
+void locked(::terminal::CommandContext&& ctx) {
+    for (size_t address = 0; address < lock::storage.size(); ++address) {
+        if (lock::storage.test(address)) {
+            ctx.output.printf_P(PSTR("0x%02X\n"), address);
         }
+    }
 
-        terminalError(ctx, F("No devices found"));
-    });
-
-    terminalRegisterCommand(F("I2C.CLEAR"), [](::terminal::CommandContext&& ctx) {
-        ctx.output.printf("result: %d\n", i2c::clear());
-        terminalOK(ctx);
-    });
+    terminalOK(ctx);
 }
 
+PROGMEM_STRING(Scan, "I2C.SCAN");
+
+void scan(::terminal::CommandContext&& ctx) {
+    size_t devices { 0 };
+    i2c::scan([&](uint8_t address) {
+        ++devices;
+        ctx.output.printf_P(PSTR("0x%02X\n"), address);
+    });
+
+    if (devices) {
+        ctx.output.printf_P(PSTR("found %zu device(s)\n"), devices);
+        terminalOK(ctx);
+        return;
+    }
+
+    terminalError(ctx, F("no devices found"));
+}
+
+PROGMEM_STRING(Clear, "I2C.CLEAR");
+
+void clear(::terminal::CommandContext&& ctx) {
+    ctx.output.printf_P(PSTR("result %d\n"), i2c::clear());
+    terminalOK(ctx);
+}
+
+static constexpr ::terminal::Command Commands[] PROGMEM {
+    {Locked, locked},
+    {Scan, scan},
+    {Clear, clear},
+};
+
+void setup() {
+    espurna::terminal::add(Commands);
+}
+
+} // namespace terminal
 #endif // TERMINAL_SUPPORT
 
-} // namespace i2c
 } // namespace
+} // namespace i2c
+} // namespace espurna
 
 // ---------------------------------------------------------------------
 // I2C API
@@ -342,10 +451,8 @@ uint8_t i2c_write_buffer(uint8_t address, uint8_t * buffer, size_t len) {
 
 uint8_t i2c_read_uint8(uint8_t address) {
     uint8_t value;
-    Wire.beginTransmission((uint8_t) address);
     Wire.requestFrom((uint8_t) address, (uint8_t) 1);
     value = Wire.read();
-    Wire.endTransmission();
     return value;
 }
 
@@ -356,16 +463,13 @@ uint8_t i2c_read_uint8(uint8_t address, uint8_t reg) {
     Wire.endTransmission();
     Wire.requestFrom((uint8_t) address, (uint8_t) 1);
     value = Wire.read();
-    Wire.endTransmission();
     return value;
 }
 
 uint16_t i2c_read_uint16(uint8_t address) {
     uint16_t value;
-    Wire.beginTransmission((uint8_t) address);
     Wire.requestFrom((uint8_t) address, (uint8_t) 2);
     value = (Wire.read() * 256) | Wire.read();
-    Wire.endTransmission();
     return value;
 }
 
@@ -376,15 +480,14 @@ uint16_t i2c_read_uint16(uint8_t address, uint8_t reg) {
     Wire.endTransmission();
     Wire.requestFrom((uint8_t) address, (uint8_t) 2);
     value = (Wire.read() * 256) | Wire.read();
-    Wire.endTransmission();
     return value;
 }
 
-void i2c_read_buffer(uint8_t address, uint8_t * buffer, size_t len) {
-    Wire.beginTransmission((uint8_t) address);
+void i2c_read_buffer(uint8_t address, uint8_t* buffer, size_t len) {
     Wire.requestFrom(address, (uint8_t) len);
-    for (size_t i=0; i<len; i++) buffer[i] = Wire.read();
-    Wire.endTransmission();
+    for (size_t i=0; i<len; ++i) {
+        buffer[i] = Wire.read();
+    }
 }
 
 void i2c_write_uint(uint8_t address, uint16_t reg, uint32_t input, size_t size) {
@@ -464,67 +567,39 @@ int16_t i2c_read_int16_le(uint8_t address, uint8_t reg) {
 // -----------------------------------------------------------------------------
 
 int i2cClearBus() {
-    return i2c::clear();
+    return espurna::i2c::clear();
 }
 
-bool i2cGetLock(unsigned char address) {
-    unsigned char index = address / 8;
-    unsigned char mask = 1 << (address % 8);
-    if (!(i2c::internal::locked[index] & mask)) {
-        i2c::internal::locked[index] = i2c::internal::locked[index] | mask;
-        DEBUG_MSG_P(PSTR("[I2C] Address 0x%02X locked\n"), address);
-        return true;
-    }
-    return false;
+bool i2cLock(uint8_t address) {
+    return espurna::i2c::lock::set(address);
 }
 
-bool i2cReleaseLock(unsigned char address) {
-    unsigned char index = address / 8;
-    unsigned char mask = 1 << (address % 8);
-    if (i2c::internal::locked[index] & mask) {
-        i2c::internal::locked[index] = i2c::internal::locked[index] & ~mask;
-        return true;
-    }
-    return false;
+void i2cUnlock(uint8_t address) {
+    espurna::i2c::lock::reset(address);
 }
 
-unsigned char i2cFind(size_t size, unsigned char * addresses, unsigned char &start) {
-    for (unsigned char i=start; i<size; i++) {
-        if (i2c::check(addresses[i]) == 0) {
-            start = i;
-            return addresses[i];
-        }
-    }
-    return 0;
+uint8_t i2cFind(uint8_t address) {
+    return espurna::i2c::find(address);
 }
 
-unsigned char i2cFind(size_t size, unsigned char * addresses) {
-    unsigned char start = 0;
-    return i2cFind(size, addresses, start);
+uint8_t i2cFind(const uint8_t* begin, const uint8_t* end) {
+    return espurna::i2c::find(begin, end);
 }
 
-unsigned char i2cFindAndLock(size_t size, unsigned char * addresses) {
-    unsigned char start = 0;
-    unsigned char address = 0;
-    while ((address = i2cFind(size, addresses, start))) {
-        if (i2cGetLock(address)) break;
-        start++;
-    }
-    return address;
+uint8_t i2cFindAndLock(const uint8_t* begin, const uint8_t* end) {
+    return espurna::i2c::findAndLock(begin, end);
 }
 
 void i2cSetup() {
-    i2c::init();
+    espurna::i2c::init();
 
 #if TERMINAL_SUPPORT
-    i2c::initTerminalCommands();
+    espurna::i2c::terminal::setup();
 #endif
 
-#if I2C_PERFORM_SCAN
-    i2c::scan([](unsigned char address) {
-        DEBUG_MSG_P(PSTR("[I2C] Found 0x02X\n"), address);
-    });
-#endif
+    if (espurna::i2c::build::performScanOnBoot()) {
+        espurna::i2c::bootScan();
+    }
 }
 
 #endif

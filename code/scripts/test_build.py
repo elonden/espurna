@@ -37,6 +37,13 @@ def format_configurations(configurations):
     return "\n".join(str(cfg) for cfg in configurations)
 
 
+def pluralize(string, length):
+    if length > 1:
+        return f"{string}s"
+
+    return string
+
+
 def build_configurations(args, configurations):
     cmd = ["platformio", "run"]
     if not args.no_silent:
@@ -55,7 +62,7 @@ def build_configurations(args, configurations):
         if not args.no_single_source:
             os_env["ESPURNA_BUILD_SINGLE_SOURCE"] = "1"
 
-        os_env["PLATFORMIO_SRC_BUILD_FLAGS"] = " ".join(
+        os_env["PLATFORMIO_BUILD_SRC_FLAGS"] = " ".join(
             [
                 '-DMANUFACTURER=\\"TEST_BUILD\\"',
                 '-DDEVICE=\\"{}\\"'.format(cfg.stem.replace(" ", "_").upper()),
@@ -71,8 +78,9 @@ def build_configurations(args, configurations):
             log.exception(e)
             if configurations:
                 log.info(
-                    "%s configurations left\n%s",
+                    "%s %s left\n%s",
                     bold(len(configurations)),
+                    pluralize("configuration", len(configurations)),
                     format_configurations(configurations),
                 )
             raise
@@ -85,7 +93,7 @@ def build_configurations(args, configurations):
 
         log.info(
             "%s finished in %s, %s is %s bytes",
-            *(bold(x) for x in (cfg, diff, firmware_bin, firmware_bin.stat().st_size))
+            *(bold(x) for x in (cfg, diff, firmware_bin, firmware_bin.stat().st_size)),
         )
 
         build_time += diff
@@ -113,8 +121,9 @@ def main(args):
         return
 
     log.info(
-        "Found %s configurations\n%s",
+        "Found %s %s\n%s",
         bold(len(configurations)),
+        pluralize("configuration", len(configurations)),
         format_configurations(configurations),
     )
 

@@ -20,29 +20,30 @@ namespace web {
 namespace {
 
 void onVisible(JsonObject& root) {
-    wsPayloadModule(root, "ota");
+    wsPayloadModule(root, PSTR("ota"));
 }
 
 void sendResponse(AsyncWebServerRequest *request, int code, const String& payload = "") {
-    auto *response = request->beginResponseStream("text/plain", 256);
-    response->addHeader("Connection", "close");
-    response->addHeader("X-XSS-Protection", "1; mode=block");
-    response->addHeader("X-Content-Type-Options", "nosniff");
-    response->addHeader("X-Frame-Options", "deny");
+    auto *response = request->beginResponseStream(F("text/plain"), 256);
+
+    response->addHeader(F("Connection"), F("close"));
+    response->addHeader(F("X-XSS-Protection"), F("1; mode=block"));
+    response->addHeader(F("X-Content-Type-Options"), F("nosniff"));
+    response->addHeader(F("X-Frame-Options"), F("deny"));
 
     response->setCode(code);
 
     if (payload.length()) {
-        response->printf("%s", payload.c_str());
+        response->print(payload);
     } else {
         if (!Update.hasError()) {
-            response->print("OK");
+            response->print(F("OK"));
         } else {
-            #if defined(ARDUINO_ESP8266_RELEASE_2_3_0)
-                Update.printError(reinterpret_cast<Stream&>(response));
-            #else
-                Update.printError(*response);
-            #endif
+#if defined(ARDUINO_ESP8266_RELEASE_2_3_0)
+            Update.printError(reinterpret_cast<Stream&>(response));
+#else
+            Update.printError(*response);
+#endif
         }
     }
 
@@ -56,7 +57,7 @@ void setStatus(AsyncWebServerRequest *request, int code, const String& payload =
 
 void onUpgrade(AsyncWebServerRequest *request) {
     if (!webAuthenticate(request)) {
-        return request->requestAuthentication(getHostname().c_str());
+        return request->requestAuthentication(systemHostname().c_str());
     }
 
     if (request->_tempObject) {
@@ -68,7 +69,7 @@ void onUpgrade(AsyncWebServerRequest *request) {
 
 void onFile(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
     if (!webAuthenticate(request)) {
-        return request->requestAuthentication(getHostname().c_str());
+        return request->requestAuthentication(systemHostname().c_str());
     }
 
     // We set this after we are done with the request

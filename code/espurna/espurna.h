@@ -26,14 +26,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "compat.h"
 
-#include "board.h"
+#include "build.h"
+#include "types.h"
 #include "debug.h"
 #include "gpio.h"
 #include "storage_eeprom.h"
 #include "settings.h"
 #include "system.h"
 #include "terminal.h"
+#include "uart.h"
 #include "utils.h"
+#include "network.h"
 #include "wifi.h"
 
 #include <functional>
@@ -58,6 +61,9 @@ void espurnaReload();
 
 using LoopCallback = void (*)();
 void espurnaRegisterLoop(LoopCallback);
+
+void espurnaRegisterOnce(espurna::Callback);
+void espurnaRegisterOnceUnique(espurna::Callback::Type);
 
 espurna::duration::Milliseconds espurnaLoopDelay();
 void espurnaLoopDelay(espurna::duration::Milliseconds);

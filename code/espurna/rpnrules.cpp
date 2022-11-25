@@ -34,6 +34,7 @@ Copyright (C) 2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 // -----------------------------------------------------------------------------
 
+namespace espurna {
 namespace rpnrules {
 namespace {
 
@@ -110,12 +111,12 @@ constexpr unsigned long delay() {
 namespace settings {
 namespace keys {
 
-alignas(4) static constexpr char Sticky[] PROGMEM = "rpnSticky";
-alignas(4) static constexpr char Delay[] PROGMEM = "rpnDelay";
-alignas(4) static constexpr char Rule[] PROGMEM = "rpnRule";
+PROGMEM_STRING(Sticky, "rpnSticky");
+PROGMEM_STRING(Delay, "rpnDelay");
+PROGMEM_STRING(Rule, "rpnRule");
 
-alignas(4) static constexpr char Topic[] PROGMEM = "rpnTopic";
-alignas(4) static constexpr char Name[] PROGMEM = "rpnName";
+PROGMEM_STRING(Topic, "rpnTopic");
+PROGMEM_STRING(Name, "rpnName");
 
 } // namespace keys
 
@@ -143,8 +144,8 @@ String name(size_t index) {
 size_t countMqttNames() {
     size_t index { 0 };
     for (;;) {
-        auto name = SettingsKey{ keys::Name, index };
-        if (!::settings::internal::has(name.value())) {
+        auto name = espurna::settings::Key(keys::Name, index);
+        if (!espurna::settings::has(name.value())) {
             break;
         }
 
@@ -287,65 +288,95 @@ void showStack(Print& output) {
     output.print(F("      (empty)\n"));
 }
 
-void setup() {
-    terminalRegisterCommand(F("RPN.RUNNERS"), [](::terminal::CommandContext&& ctx) {
-        if (internal::runners.empty()) {
-            terminalError(ctx, F("No active runners"));
-            return;
-        }
+PROGMEM_STRING(Runners, "RPN.RUNNERS");
 
-        for (auto& runner : internal::runners) {
-            char buffer[128] = {0};
-            snprintf_P(buffer, sizeof(buffer), PSTR("%p %s %u ms, last %u ms\n"),
-                &runner, (Runner::Policy::Periodic == runner.policy()) ? "every" : "one-shot",
-                runner.period(), runner.last());
-            ctx.output.print(buffer);
-        }
+void runners(::terminal::CommandContext&& ctx) {
+    if (internal::runners.empty()) {
+        terminalError(ctx, F("No active runners"));
+        return;
+    }
 
-        terminalOK(ctx);
-    });
+    for (auto& runner : internal::runners) {
+        char buffer[128] = {0};
+        snprintf_P(buffer, sizeof(buffer),
+            PSTR("%p %s %u ms, last %u ms\n"),
+            &runner,
+            (Runner::Policy::Periodic == runner.policy())
+                ? "every"
+                : "one-shot",
+            runner.period(), runner.last());
+        ctx.output.print(buffer);
+    }
 
-    terminalRegisterCommand(F("RPN.VARS"), [](::terminal::CommandContext&& ctx) {
-        rpn_variables_foreach(internal::context, [&ctx](const String& name, const rpn_value& value) {
+    terminalOK(ctx);
+}
+
+PROGMEM_STRING(Variables, "RPN.VARS");
+
+void variables(::terminal::CommandContext&& ctx) {
+    rpn_variables_foreach(internal::context,
+        [&ctx](const String& name, const rpn_value& value) {
             char buffer[256] = {0};
-            snprintf_P(buffer, sizeof(buffer), PSTR("      %s: %s\n"), name.c_str(), valueToString(value).c_str());
+            snprintf_P(buffer, sizeof(buffer),
+                PSTR("      %s: %s\n"),
+                name.c_str(), valueToString(value).c_str());
             ctx.output.print(buffer);
         });
-        terminalOK(ctx);
-    });
+    terminalOK(ctx);
+}
 
-    terminalRegisterCommand(F("RPN.OPS"), [](::terminal::CommandContext&& ctx) {
-        rpn_operators_foreach(internal::context, [&ctx](const String& name, size_t argc, rpn_operator::callback_type) {
+PROGMEM_STRING(Operators, "RPN.OPS");
+
+void operators(::terminal::CommandContext&& ctx) {
+    rpn_operators_foreach(internal::context,
+        [&ctx](const String& name, size_t argc, rpn_operator::callback_type) {
             char buffer[128] = {0};
-            snprintf_P(buffer, sizeof(buffer), PSTR("      %s (%d)\n"), name.c_str(), argc);
+            snprintf_P(buffer, sizeof(buffer),
+                PSTR("      %s (%d)\n"),
+                name.c_str(), argc);
             ctx.output.print(buffer);
         });
-        terminalOK(ctx);
-    });
+    terminalOK(ctx);
+}
 
-    terminalRegisterCommand(F("RPN.TEST"), [](::terminal::CommandContext&& ctx) {
-        if (ctx.argv.size() != 2) {
-            terminalError(ctx, F("Wrong arguments"));
-            return;
-        }
+PROGMEM_STRING(Test, "RPN.TEST");
 
-        const char* ptr = ctx.argv[1].c_str();
-        ctx.output.printf_P(PSTR("Expression: \"%s\"\n"), ctx.argv[1].c_str());
+void test(::terminal::CommandContext&& ctx) {
+    if (ctx.argv.size() != 2) {
+        terminalError(ctx, F("Wrong arguments"));
+        return;
+    }
 
-        if (!rpn_process(internal::context, ptr)) {
-            rpn_stack_clear(internal::context);
-            char buffer[64] = {0};
-            snprintf_P(buffer, sizeof(buffer), PSTR("at %u (category %d code %d)"),
-                internal::context.error.position, static_cast<int>(internal::context.error.category), internal::context.error.code);
-            terminalError(ctx, buffer);
-            return;
-        }
+    const char* ptr = ctx.argv[1].c_str();
+    ctx.output.printf_P(PSTR("Expression: \"%s\"\n"), ctx.argv[1].c_str());
 
-        showStack(ctx.output);
+    if (!rpn_process(internal::context, ptr)) {
         rpn_stack_clear(internal::context);
+        char buffer[64] = {0};
+        snprintf_P(buffer, sizeof(buffer),
+            PSTR("at %u (category %d code %d)"),
+            internal::context.error.position,
+            static_cast<int>(internal::context.error.category),
+            internal::context.error.code);
+        terminalError(ctx, buffer);
+        return;
+    }
 
-        terminalOK(ctx);
-    });
+    showStack(ctx.output);
+    rpn_stack_clear(internal::context);
+
+    terminalOK(ctx);
+}
+
+static constexpr ::terminal::Command Commands[] PROGMEM {
+    {Runners, runners},
+    {Variables, variables},
+    {Operators, operators},
+    {Test, test},
+};
+
+void setup() {
+    espurna::terminal::add(Commands);
 }
 
 } // namespace terminal
@@ -354,12 +385,12 @@ void setup() {
 #if WEB_SUPPORT
 namespace web {
 
-void onVisible(JsonObject& root) {
-    wsPayloadModule(root, "rpn");
+bool onKeyCheck(espurna::StringView key, const JsonVariant& value) {
+    return espurna::settings::query::samePrefix(key, STRING_VIEW("rpn"));
 }
 
-bool onKeyCheck(const char * key, JsonVariant& value) {
-    return (strncmp(key, "rpn", 3) == 0);
+void onVisible(JsonObject& root) {
+    wsPayloadModule(root, PSTR("rpn"));
 }
 
 void onConnected(JsonObject& root) {
@@ -380,12 +411,12 @@ void onConnected(JsonObject& root) {
     }
 
 #if MQTT_SUPPORT
-    static constexpr std::array<::settings::query::IndexedSetting, 2> Settings {
+    static constexpr std::array<espurna::settings::query::IndexedSetting, 2> Settings {
         {{settings::keys::Name, settings::name},
          {settings::keys::Topic, settings::topic}}
     };
 
-    ::web::ws::EnumerableConfig config{ root, STRING_VIEW("rpnTopics") };
+    espurna::web::ws::EnumerableConfig config{ root, STRING_VIEW("rpnTopics") };
     config(STRING_VIEW("topics"), settings::countMqttNames(), Settings);
 #endif
 }
@@ -417,37 +448,71 @@ void subscribe() {
     }
 }
 
-void callback(unsigned int type, const char * topic, const char * payload) {
+rpn_value process_variable(espurna::StringView payload) {
+    auto tmp = std::make_unique<rpn_context>();
+
+    rpn_value out;
+    if (!rpn_process(*tmp, payload.begin())) {
+        return out;
+    }
+
+    if (rpn_stack_size(*tmp) != 1) {
+        return out;
+    }
+
+    out = rpn_stack_pop(*tmp);
+    return out;
+}
+
+void callback(unsigned int type, StringView topic, StringView payload) {
     if (type == MQTT_CONNECT_EVENT) {
         subscribe();
         return;
     }
 
     if (type == MQTT_MESSAGE_EVENT) {
-        size_t index { 0 };
+        if (!payload.length()) {
+            return;
+        }
+
+        if ((payload[0] == '&') || (payload[0] == '$')) {
+            return;
+        }
+
+        size_t count { 0 };
         String rpnTopic;
 
         for (;;) {
-            rpnTopic = rpnrules::settings::topic(index++);
+            const auto index = count++;
+            rpnTopic = rpnrules::settings::topic(index);
             if (!rpnTopic.length()) {
                 break;
             }
 
             if (rpnTopic == topic) {
-                auto name = rpnrules::settings::name(index);
+                const auto name = rpnrules::settings::name(index);
                 if (!name.length()) {
                     break;
                 }
 
+                auto value = process_variable(payload);
+                if (value.isNull() || value.isError()) {
+                    return;
+                }
+
                 for (auto& variable : variables) {
                     if (variable.name == name) {
-                        variable.value = rpn_value{atof(payload)};
+                        variable.value = std::move(value);
                         return;
                     }
                 }
 
-                variables.emplace_front(Variable{
-                        std::move(name), rpn_value{atof(payload)}});
+                variables.emplace_front(
+                    Variable{
+                        .name = std::move(name),
+                        .value = std::move(value),
+                    });
+
                 return;
             }
         }
@@ -478,7 +543,7 @@ namespace operators {
 namespace runners {
 
 rpn_operator_error handle(rpn_context& ctxt, Runner::Policy policy, unsigned long time) {
-    for (auto& runner : ::rpnrules::internal::runners) {
+    for (auto& runner : internal::runners) {
         if (runner.match(policy, time)) {
             return static_cast<bool>(runner)
                 ? rpn_operator_error::Ok
@@ -486,7 +551,7 @@ rpn_operator_error handle(rpn_context& ctxt, Runner::Policy policy, unsigned lon
         }
     }
 
-    ::rpnrules::internal::runners.emplace_front(policy, time);
+    internal::runners.emplace_front(policy, time);
     return rpn_operator_error::CannotContinue;
 }
 
@@ -666,7 +731,7 @@ namespace relay {
 
 void updateVariables(size_t id, bool status) {
     char name[32] = {0};
-    snprintf(name, sizeof(name), "relay%u", id);
+    snprintf(name, sizeof(name), "relay%zu", id);
 
     rpn_variable_set(internal::context, name, rpn_value(status));
     schedule();
@@ -733,8 +798,17 @@ void init(rpn_context& context) {
         return 0;
     });
 
-    rpn_operator_set(context, "black", 0, [](rpn_context& ctxt) -> rpn_error {
-        ::lightColor(0ul);
+    rpn_operator_set(context, "brightness", 0, [](rpn_context& ctxt) -> rpn_error {
+        rpn_value value { static_cast<rpn_int>(::lightBrightness()) };
+        rpn_stack_push(ctxt, value);
+        return 0;
+    });
+
+    rpn_operator_set(context, "set_brightness", 1, [](rpn_context& ctxt) -> rpn_error {
+        rpn_value value;
+        rpn_stack_pop(ctxt, value);
+
+        ::lightBrightness(value.toInt());
         return 0;
     });
 
@@ -780,9 +854,9 @@ constexpr uint32_t StaleDelay { 10000ul };
 namespace settings {
 namespace keys {
 
-alignas(4) static constexpr char RepeatWindow[] PROGMEM = "rfbRepeatWindow";
-alignas(4) static constexpr char MatchWindow[] PROGMEM = "rfbWatchWindow";
-alignas(4) static constexpr char StaleDelay[] PROGMEM = "rfbStaleDelay";
+PROGMEM_STRING(RepeatWindow, "rfbRepeatWindow");
+PROGMEM_STRING(MatchWindow, "rfbWatchWindow");
+PROGMEM_STRING(StaleDelay, "rfbStaleDelay");
 
 } // namespace keys
 
@@ -807,10 +881,11 @@ namespace internal {
 using Codes = std::list<Code>;
 Codes codes;
 
-Codes::iterator find(Codes& container, unsigned char protocol, const String& match) {
-    return std::find_if(container.begin(), container.end(), [protocol, &match](const Code& code) {
-        return (code.protocol == protocol) && (code.raw == match);
-    });
+Codes::iterator find(Codes& container, unsigned char protocol, StringView match) {
+    return std::find_if(container.begin(), container.end(),
+        [protocol, &match](const Code& code) {
+            return (code.protocol == protocol) && (code.raw == match);
+        });
 }
 
 uint32_t repeat_window { build::RepeatWindow };
@@ -917,7 +992,7 @@ rpn_error matchAndWait(rpn_context& ctxt) {
     }
 
     // purge code to avoid matching again on the next rules run
-    if (rpn_operator_error::Ok == ::rpnrules::operators::runners::handle(ctxt, Runner::Policy::OneShot, time.toUint())) {
+    if (rpn_operator_error::Ok == operators::runners::handle(ctxt, Runner::Policy::OneShot, time.toUint())) {
         internal::codes.erase(result);
         return rpn_operator_error::Ok;
     }
@@ -949,7 +1024,7 @@ rpn_error match(rpn_context& ctxt) {
     return rpn_operator_error::CannotContinue;
 }
 
-void codeHandler(unsigned char protocol, const char* raw_code) {
+void codeHandler(unsigned char protocol, StringView raw_code) {
     // remove really old codes that we have not seen in a while to avoid memory exhaustion
     auto ts = millis();
     auto old = std::remove_if(internal::codes.begin(), internal::codes.end(), [ts](Code& code) {
@@ -969,11 +1044,29 @@ void codeHandler(unsigned char protocol, const char* raw_code) {
         (*result).last = millis();
         (*result).count += 1u;
     } else {
-        internal::codes.push_back({protocol, raw_code, 1u, millis()});
+        internal::codes.push_back({protocol, raw_code.toString(), 1u, millis()});
     }
 
     schedule();
 }
+
+PROGMEM_STRING(RfbCodes, "RFB.CODES");
+
+void rfb_codes(::terminal::CommandContext&& ctx) {
+    for (auto& code : internal::codes) {
+        char buffer[128] = {0};
+        snprintf_P(buffer, sizeof(buffer),
+            PSTR("proto=%u raw=\"%s\" count=%u last=%u\n"),
+            code.protocol, code.raw.c_str(), code.count, code.last);
+        ctx.output.print(buffer);
+    }
+
+    terminalOK(ctx);
+}
+
+static ::terminal::Command RfbCommands[] PROGMEM {
+    {RfbCodes, rfb_codes},
+};
 
 void init(rpn_context& context) {
     // - Repeat window is an arbitrary time, just about 3-4 more times it takes for
@@ -986,17 +1079,7 @@ void init(rpn_context& context) {
     internal::stale_delay = settings::staleDelay();
 
 #if TERMINAL_SUPPORT
-    terminalRegisterCommand(F("RFB.CODES"), [](::terminal::CommandContext&& ctx) {
-        for (auto& code : internal::codes) {
-            char buffer[128] = {0};
-            snprintf_P(buffer, sizeof(buffer),
-                PSTR("proto=%u raw=\"%s\" count=%u last=%u\n"),
-                code.protocol, code.raw.c_str(), code.count, code.last);
-            ctx.output.print(buffer);
-        }
-
-        terminalOK(ctx);
-    });
+    espurna::terminal::add(RfbCommands);
 #endif
 
     // Main bulk of the processing goes on in here
@@ -1017,16 +1100,14 @@ void init(rpn_context& context) {
 #if SENSOR_SUPPORT
 namespace sensor {
 
-void updateVariables(const String& topic, unsigned char index, double reading, const char*) {
-    static_assert(sizeof(double) == sizeof(rpn_float), "");
+void updateVariables(const espurna::sensor::Value& value) {
+    static_assert(std::is_same<decltype(value.value), rpn_float>::value, "");
 
-    String name;
-    name.reserve(topic.length() + 3);
+    auto topic = value.topic;
+    topic.replace("/", "");
 
-    name += topic;
-    name += index;
-
-    rpn_variable_set(internal::context, name, rpn_value(static_cast<rpn_float>(reading)));
+    rpn_variable_set(internal::context,
+            topic, rpn_value(static_cast<rpn_float>(value.value)));
 }
 
 void init(rpn_context&) {
@@ -1035,19 +1116,6 @@ void init(rpn_context&) {
 
 } // namespace sensor
 #endif // SENSOR_SUPPORT
-
-#if TERMINAL_SUPPORT
-namespace terminal {
-
-void init(rpn_context& context) {
-    rpn_operator_set(context, "showstack", 0, [](rpn_context& ctxt) -> rpn_error {
-        rpnrules::terminal::showStack(::terminalDefaultStream());
-        return 0;
-    });
-}
-
-} // namespace terminal
-#endif
 
 #if DEBUG_SUPPORT
 namespace debug {
@@ -1070,7 +1138,7 @@ namespace system {
 void sleep(uint64_t duration, RFMode mode);
 
 void scheduleSleep(uint64_t duration, RFMode mode) {
-    schedule_function([duration, mode]() {
+    espurnaRegisterOnce([duration, mode]() {
         sleep(duration, mode);
     });
 }
@@ -1225,9 +1293,6 @@ void init(rpn_context& context) {
 #if SENSOR_SUPPORT
     sensor::init(context);
 #endif
-#if TERMINAL_SUPPORT
-    terminal::init(context);
-#endif
 }
 
 } // namespace operators
@@ -1311,9 +1376,10 @@ void setup() {
 
 } // namespace
 } // namespace rpnrules
+} // namespace espurna
 
 void rpnSetup() {
-    rpnrules::setup();
+    espurna::rpnrules::setup();
 }
 
 #endif // RPN_RULES_SUPPORT

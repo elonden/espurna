@@ -20,12 +20,12 @@ Copyright (C) 2020 by Maxim Prokhorov <prokhorov dot max at outlook dot com>
 
 namespace {
 
-bool _apiWebSocketOnKeyCheck(const char * key, JsonVariant&) {
-    return (strncmp(key, "api", 3) == 0);
+bool _apiWebSocketOnKeyCheck(espurna::StringView key, const JsonVariant&) {
+    return espurna::settings::query::samePrefix(key, STRING_VIEW("api"));
 }
 
 void _apiWebSocketOnVisible(JsonObject& root) {
-    wsPayloadModule(root, "api");
+    wsPayloadModule(root, PSTR("api"));
 }
 
 void _apiWebSocketOnConnected(JsonObject& root) {

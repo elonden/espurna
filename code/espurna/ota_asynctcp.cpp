@@ -31,6 +31,7 @@ Copyright (C) 2016-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #include <ESPAsyncTCP.h>
 
+namespace espurna {
 namespace ota {
 namespace asynctcp {
 namespace {
@@ -104,7 +105,7 @@ void disconnect() {
 void onDisconnect(void* arg, AsyncClient*) {
     DEBUG_MSG_P(PSTR("\n"));
     otaFinalize(reinterpret_cast<BasicHttpClient*>(arg)->size, CustomResetReason::Ota, true);
-    schedule_function(internal::disconnect);
+    espurnaRegisterOnce(internal::disconnect);
 }
 
 void onTimeout(void*, AsyncClient* client, uint32_t) {
@@ -142,7 +143,7 @@ void onData(void* arg, AsyncClient* client, void* data, size_t len) {
 
             // Check header before anything is written to the flash
             if (!otaVerifyHeader((uint8_t *) ptr, len)) {
-                DEBUG_MSG_P(PSTR("[OTA] ERROR: No magic byte / invalid flash config"));
+                DEBUG_MSG_P(PSTR("[OTA] ERROR: No magic byte / invalid flash config\n"));
                 client->close(true);
                 ota_client->state = BasicHttpClient::State::End;
                 return;
@@ -217,9 +218,9 @@ bool BasicHttpClient::connect() {
 
 // -----------------------------------------------------------------------------
 
-void clientFromUrl(URL&& url) {
+void clientFromUrl(URL url) {
     if (!url.protocol.equals("http") && !url.protocol.equals("https")) {
-        DEBUG_MSG_P(PSTR("[OTA] Incorrect URL specified\n"));
+        DEBUG_MSG_P(PSTR("[OTA] Unsupported protocol\n"));
         return;
     }
 
@@ -229,44 +230,51 @@ void clientFromUrl(URL&& url) {
         return;
     }
 
+    DEBUG_MSG_P(PSTR("[OTA] Connecting to %s:%hu\n"), url.host.c_str(), url.port);
+
     internal::client = std::make_unique<BasicHttpClient>(std::move(url));
     if (!internal::client->connect()) {
         DEBUG_MSG_P(PSTR("[OTA] Connection failed\n"));
     }
 }
 
-void clientFromUrl(const String& string) {
-    clientFromUrl(URL(string));
+void clientFromUrl(StringView payload) {
+    clientFromUrl(URL(payload));
 }
 
 #if TERMINAL_SUPPORT
+PROGMEM_STRING(OtaCommand, "OTA");
 
-void terminalCommands() {
-    terminalRegisterCommand(F("OTA"), [](::terminal::CommandContext&& ctx) {
-        if (ctx.argv.size() == 2) {
-            clientFromUrl(ctx.argv[1]);
-            terminalOK(ctx);
-            return;
-        }
+static void otaCommand(::terminal::CommandContext&& ctx) {
+    if (ctx.argv.size() != 2) {
+        terminalError(ctx, F("OTA <URL>"));
+        return;
+    }
 
-        terminalError(ctx, F("OTA <url>"));
-    });
+    clientFromUrl(ctx.argv[1]);
+    terminalOK(ctx);
 }
 
+static constexpr ::terminal::Command OtaCommands[] PROGMEM {
+    {OtaCommand, otaCommand},
+};
+
+void terminalSetup() {
+    terminal::add(OtaCommands);
+}
 #endif // TERMINAL_SUPPORT
 
 #if OTA_MQTT_SUPPORT
 
-void mqttCallback(unsigned int type, const char* topic, char* payload) {
+void mqttCallback(unsigned int type, StringView topic, StringView payload) {
     if (type == MQTT_CONNECT_EVENT) {
         mqttSubscribe(MQTT_TOPIC_OTA);
         return;
     }
 
     if (type == MQTT_MESSAGE_EVENT) {
-        String t = mqttMagnitude(topic);
+        auto t = mqttMagnitude(topic);
         if (t.equals(MQTT_TOPIC_OTA)) {
-            DEBUG_MSG_P(PSTR("[OTA] Initiating from URL: %s\n"), payload);
             clientFromUrl(payload);
         }
         return;
@@ -278,6 +286,7 @@ void mqttCallback(unsigned int type, const char* topic, char* payload) {
 } // namespace
 } // namespace asynctcp
 } // namespace ota
+} // namespace espurna
 
 #endif
 
@@ -287,11 +296,11 @@ void otaClientSetup() {
     moveSetting("otafp", "otaFP");
 
 #if TERMINAL_SUPPORT
-    ota::asynctcp::terminalCommands();
+    espurna::ota::asynctcp::terminalSetup();
 #endif
 
 #if (MQTT_SUPPORT && OTA_MQTT_SUPPORT)
-    mqttRegister(ota::asynctcp::mqttCallback);
+    mqttRegister(espurna::ota::asynctcp::mqttCallback);
 #endif
 }
 

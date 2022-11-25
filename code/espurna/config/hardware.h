@@ -47,7 +47,7 @@
 // ESPurna Core
 // -----------------------------------------------------------------------------
 
-#elif defined(ESPURNA_CORE)
+#elif defined(ESPURNA_MINIMAL_ARDUINO_OTA)
 
     // This is a special device targeted to generate a light-weight binary image
     // meant to be able to do two-step-updates:
@@ -55,7 +55,7 @@
 
     // Info
     #define MANUFACTURER            "ESPURNA"
-    #define DEVICE                  "CORE"
+    #define DEVICE                  "MINIMAL_ARDUINO_OTA"
 
     // Disable non-core modules
     #define ALEXA_SUPPORT           0
@@ -70,7 +70,9 @@
     #define RPN_RULES_SUPPORT       0
     #define SCHEDULER_SUPPORT       0
     #define SENSOR_SUPPORT          0
+    #define TERMINAL_SERIAL_SUPORT  0
     #define THINGSPEAK_SUPPORT      0
+    #define UART_SUPPORT            0
     #define WEB_SUPPORT             0
 
     #define DEBUG_TELNET_SUPPORT    1
@@ -87,14 +89,14 @@
     //#define TELNET_SUPPORT          0 // when only using espota.py
     //#define TERMINAL_SUPPORT        0 //
 
-#elif defined(ESPURNA_CORE_WEBUI)
+#elif defined(ESPURNA_MINIMAL_WEBUI)
 
     // This is a special device with no specific hardware
     // with the basics to easily upgrade it to a device-specific image
 
     // Info
     #define MANUFACTURER            "ESPURNA"
-    #define DEVICE                  "CORE_WEBUI"
+    #define DEVICE                  "MINIMAL_WEBUI"
 
     // Disable non-core modules
     #define ALEXA_SUPPORT           0
@@ -108,7 +110,9 @@
     #define NTP_SUPPORT             0
     #define SCHEDULER_SUPPORT       0
     #define SENSOR_SUPPORT          0
+    #define TERMINAL_SERIAL_SUPORT  0
     #define THINGSPEAK_SUPPORT      0
+    #define UART_SUPPORT            0
 
     // Small webpage to upload the .bin
     #define MDNS_SERVER_SUPPORT     0
@@ -150,12 +154,6 @@
     // Light
     #define LED1_PIN            2
     #define LED1_PIN_INVERSE    1
-
-#elif defined(NODEMCU_BASIC)
-    // Info
-    // Generic NodeMCU Board without any buttons or relays connected.
-    #define MANUFACTURER        "NODEMCU"
-    #define DEVICE              "BASIC"
 
 #elif defined(WEMOS_D1_MINI)
 
@@ -341,9 +339,12 @@
     #define BUTTON1_PIN         0
     #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
     #define BUTTON1_RELAY       1
+
     #define BUTTON2_PIN         14
-    #define BUTTON2_CONFIG      BUTTON_SWITCH | BUTTON_SET_PULLUP | BUTTON_DEFAULT_HIGH
+    #define BUTTON2_CONFIG      BUTTON_SWITCH | BUTTON_SET_PULLUP | BUTTON_DEFAULT_BOOT
     #define BUTTON2_RELAY       1
+    #define BUTTON2_PRESS       BUTTON_ACTION_TOGGLE
+    #define BUTTON2_RELEASE     BUTTON_ACTION_TOGGLE
 
     // Relays
     #define RELAY1_PIN          12
@@ -363,9 +364,12 @@
     #define BUTTON1_PIN         0
     #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
     #define BUTTON1_RELAY       1
+
     #define BUTTON2_PIN         14
-    #define BUTTON2_CONFIG      BUTTON_SWITCH | BUTTON_SET_PULLUP | BUTTON_DEFAULT_HIGH
+    #define BUTTON2_CONFIG      BUTTON_SWITCH | BUTTON_SET_PULLUP | BUTTON_DEFAULT_BOOT
     #define BUTTON2_RELAY       1
+    #define BUTTON2_PRESS       BUTTON_ACTION_TOGGLE
+    #define BUTTON2_RELEASE     BUTTON_ACTION_TOGGLE
 
     // Relays
     #define RELAY1_PIN          12
@@ -561,25 +565,65 @@
     #define LED1_PIN            13
     #define LED1_PIN_INVERSE    1
 
-    // Disable UART noise
-    #define DEBUG_SERIAL_SUPPORT    0
+    // Sensor uses UART
+    #define UART_SUPPORT        1
+
+    #define UART1_BAUDRATE      4800
+    #define UART1_TX_PIN        GPIO_NONE
+    #define UART1_RX_PIN        3
 
     // CSE7766
     #ifndef CSE7766_SUPPORT
     #define CSE7766_SUPPORT     1
     #endif
-    #define CSE7766_RX_PIN      3
+
+    #define CSE7766_PORT        1
+
+#elif defined(ITEAD_SONOFF_POW_R3)
+
+    // Info
+    #define MANUFACTURER        "ITEAD"
+    #define DEVICE              "SONOFF_POW_R3"
+
+    // Buttons
+    #define BUTTON1_PIN         0
+    #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
+
+    // Relays
+    #define RELAY1_PIN          12
+    #define RELAY1_TYPE         RELAY_TYPE_INVERSE
+
+    // LEDs
+    #define LED1_PIN            13
+    #define LED1_PIN_INVERSE    1
+
+    // Sensor uses UART0
+    #define UART_SUPPORT        1
+
+    #define UART1_BAUDRATE      4800
+    #define UART1_TX_PIN        GPIO_NONE
+    #define UART1_RX_PIN        3
+
+    // CSE7766
+    #ifndef CSE7766_SUPPORT
+    #define CSE7766_SUPPORT     1
+    #endif
 
 #elif defined(ITEAD_SONOFF_DUAL)
 
     // Info
     #define MANUFACTURER            "ITEAD"
     #define DEVICE                  "SONOFF_DUAL"
-    #define SERIAL_BAUDRATE         19230
 
     // LEDs
     #define LED1_PIN            13
     #define LED1_PIN_INVERSE    1
+
+    // Device uses serial port to control relays
+    #define UART1_BAUDRATE      19230
+    #define UART1_TX_PIN        1
+    #define UART1_RX_PIN        3
 
     // Relays
     #define RELAY_PROVIDER_DUAL_SUPPORT 1
@@ -591,9 +635,6 @@
     // "Buttons" are attached to a secondary MCU and RELAY_PROVIDER_DUAL handles that
     #define BUTTON_PROVIDER_GPIO_SUPPORT    0
 
-    // Conflicts with relay operation
-    #define DEBUG_SERIAL_SUPPORT            0
-
 #elif defined(ITEAD_SONOFF_DUAL_R2)
 
     #define MANUFACTURER        "ITEAD"
@@ -601,19 +642,26 @@
 
     // Buttons
     #define BUTTON1_PIN         0       // Button 0 on header
-    #define BUTTON2_PIN         9       // Button 1 on header
-    #define BUTTON3_PIN         10      // Physical button
-    #define BUTTON1_RELAY       1
-    #define BUTTON2_RELAY       2
-    #define BUTTON3_RELAY       1
     #define BUTTON1_CONFIG      BUTTON_SWITCH | BUTTON_SET_PULLUP | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
+    #define BUTTON1_PRESS       BUTTON_ACTION_TOGGLE
+    #define BUTTON1_RELEASE     BUTTON_ACTION_TOGGLE
+
+    #define BUTTON2_PIN         9       // Button 1 on header
     #define BUTTON2_CONFIG      BUTTON_SWITCH | BUTTON_SET_PULLUP | BUTTON_DEFAULT_HIGH
+    #define BUTTON2_RELAY       2
+    #define BUTTON2_PRESS       BUTTON_ACTION_TOGGLE
+    #define BUTTON2_RELEASE     BUTTON_ACTION_TOGGLE
+
+    #define BUTTON3_PIN         10      // Physical button
     #define BUTTON3_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON3_RELAY       1
 
     // Relays
     #define RELAY1_PIN          12
-    #define RELAY2_PIN          5
     #define RELAY1_TYPE         RELAY_TYPE_NORMAL
+
+    #define RELAY2_PIN          5
     #define RELAY2_TYPE         RELAY_TYPE_NORMAL
 
     // LEDs
@@ -809,18 +857,15 @@
 
     #define RFB_SUPPORT         1
 
-    // When using un-modified harware, ESPurna communicates with the secondary
-    // MCU EFM8BB1 via UART at 19200 bps so we need to change the speed of
-    // the port and remove UART noise on serial line
+    // When using un-modified harware, we communicate with EFM8BB1 MCU
+    // using the UART connection (needs to be configured to 19200 bps)
     #ifndef RFB_PROVIDER
     #define RFB_PROVIDER        RFB_PROVIDER_EFM8BB1
     #endif
 
-    #ifndef DEBUG_SERIAL_SUPPORT
-    #define DEBUG_SERIAL_SUPPORT    0
-    #endif
-
-    #define SERIAL_BAUDRATE         19200
+    #define UART1_BAUDRATE      19200
+    #define UART1_TX_PIN        1
+    #define UART1_RX_PIN        3
 
     // Only used when RFB_PROVIDER is RCSWITCH
     #define RFB_RX_PIN          4
@@ -862,8 +907,8 @@
     #define LED1_PIN_INVERSE    1
 
     // Light
-    #define LIGHT_CH1_PIN       12  // Cold white
-    #define LIGHT_CH2_PIN       14  // Warm white
+    #define LIGHT_CH1_PIN       14  // WARM WHITE
+    #define LIGHT_CH2_PIN       12  // COLD WHITE
 
 #elif defined(ITEAD_SONOFF_T1_1CH)
 
@@ -995,12 +1040,15 @@
     #define LED1_PIN                13
     #define LED1_PIN_INVERSE        1
 
-    // Disable UART noise
-    #define DEBUG_SERIAL_SUPPORT    0
+    // Sensor uses UART0
+    #define UART_SUPPORT            1
+
+    #define UART1_BAUDRATE          4800
+    #define UART1_TX_PIN            GPIO_NONE
+    #define UART1_RX_PIN            3
 
     // CSE7766
     #define CSE7766_SUPPORT         1
-    #define CSE7766_RX_PIN          3
 
 #elif defined(ITEAD_SONOFF_S31_LITE)
 
@@ -1391,7 +1439,7 @@
     #define DEVICE              "ZJ_WFMN_C_11"
     #define LIGHT_PROVIDER      LIGHT_PROVIDER_DIMMER
 
-	// Buttons
+    // Buttons
     #define BUTTON1_PIN         0
     #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
     #define BUTTON1_RELAY       1
@@ -1423,8 +1471,8 @@
     #define LIGHT_CH1_PIN       14      // RED
     #define LIGHT_CH2_PIN       12      // GREEN
     #define LIGHT_CH3_PIN       13      // BLUE
-    #define LIGHT_CH4_PIN       5       // COLD WHITE
-    #define LIGHT_CH5_PIN       15      // WARM WHITE
+    #define LIGHT_CH4_PIN       15      // WARM WHITE
+    #define LIGHT_CH5_PIN       5       // COLD WHITE
 
 #elif defined(MAGICHOME_ZJ_LB_RGBWW_L)
 
@@ -1437,8 +1485,8 @@
     #define LIGHT_CH1_PIN       5       // RED
     #define LIGHT_CH2_PIN       4       // GREEN
     #define LIGHT_CH3_PIN       14      // BLUE
-    #define LIGHT_CH4_PIN       12      // COLD WHITE
-    #define LIGHT_CH5_PIN       13      // WARM WHITE
+    #define LIGHT_CH4_PIN       13      // WARM WHITE
+    #define LIGHT_CH5_PIN       12      // COLD WHITE
 
 // -----------------------------------------------------------------------------
 // HUACANXING H801 & H802
@@ -1450,8 +1498,10 @@
     #define MANUFACTURER        "HUACANXING"
     #define DEVICE              "H801"
     #define LIGHT_PROVIDER      LIGHT_PROVIDER_DIMMER
-    #define DEBUG_PORT          Serial1
-    #define SERIAL_RX_ENABLED   1
+
+    // Debug
+    #define UART1_TX_PIN        2
+    #define UART2_RX_PIN        GPIO_NONE
 
     // LEDs
     #define LED1_PIN            5
@@ -1470,8 +1520,10 @@
     #define MANUFACTURER        "HUACANXING"
     #define DEVICE              "H802"
     #define LIGHT_PROVIDER      LIGHT_PROVIDER_DIMMER
-    #define DEBUG_PORT          Serial1
-    #define SERIAL_RX_ENABLED   1
+
+    // Debug
+    #define UART1_TX_PIN        2
+    #define UART2_RX_PIN        GPIO_NONE
 
     // Light
     #define LIGHT_CH1_PIN       12      // RED
@@ -1702,12 +1754,23 @@
     // Info
     #define MANUFACTURER        "GENERIC"
     #define DEVICE              "V9261F"
-    #define ALEXA_SUPPORT       0
 
     // V9261F
-    #define V9261F_SUPPORT      1
-    #define V9261F_PIN          2
-    #define V9261F_PIN_INVERSE  1
+    #define V9261F_SUPPORT          1
+
+    // UART only reads data
+    #define UART_SUPPORT            1
+    #define UART_SOFTWARE_SUPPORT   1
+
+    #define UART1_BAUDRATE          4800
+    #define UART1_TX_PIN            GPIO_NONE
+    #define UART1_RX_PIN            3
+    #define UART1_INVERT            1
+    #define UART1_PARITY            Odd
+
+    #define V9261F_PORT             1
+
+    #define ALEXA_SUPPORT           0
 
 // -----------------------------------------------------------------------------
 // ECH1560
@@ -1736,10 +1799,41 @@
     #define MANUFACTURER        "GENERIC"
     #define DEVICE              "PZEM004T"
 
-    #define PZEM004T_SUPPORT     1
+    #define PZEM004T_SUPPORT            1
 
-    #define ALEXA_SUPPORT              0
-    #define DEBUG_SERIAL_SUPPORT       0
+    #define UART_SUPPORT                1
+    #define UART_SOFTWARE_SUPPORT       1
+
+    #define UART1_BAUDRATE              9600
+    #define UART1_TX_PIN                1
+    #define UART1_RX_PIN                3
+
+    #define PZEM004_PORT                1
+
+    #define ALEXA_SUPPORT               0
+
+// -----------------------------------------------------------------------------
+// PZEM004TV30
+// -----------------------------------------------------------------------------
+
+#elif defined(GENERIC_PZEM004TV30)
+
+    // Info
+    #define MANUFACTURER        "GENERIC"
+    #define DEVICE              "PZEM004TV30"
+
+    #define PZEM004TV30_SUPPORT         1
+
+    #define UART_SUPPORT                1
+    #define UART_SOFTWARE_SUPPORT       1
+
+    #define PZEM004TV30_PORT            1
+
+    #define UART1_BAUDRATE              9600
+    #define UART1_TX_PIN                1
+    #define UART1_RX_PIN                3
+
+    #define ALEXA_SUPPORT               0
 
 // -----------------------------------------------------------------------------
 // ESP-01 generic esp8266 board with 512 kB flash
@@ -1796,11 +1890,11 @@
 
     // DS18B20
     #ifndef DALLAS_SUPPORT
-    #define DALLAS_SUPPORT             	1
+    #define DALLAS_SUPPORT              1
     #endif
-    #define DALLAS_PIN                 	2
-    #define DALLAS_UPDATE_INTERVAL     	5000
-    #define TEMPERATURE_MIN_CHANGE      1.0
+
+    #define DALLAS_PIN                  2
+    #define DALLAS_UPDATE_INTERVAL      5000
 
 // -----------------------------------------------------------------------------
 // QuinLED
@@ -1957,7 +2051,7 @@
     // LEDs
     #define LED1_PIN            4 //BLUE
     #define LED1_PIN_INVERSE    0
-    #define LED2_PIN		5 //RED
+    #define LED2_PIN            5 //RED
     #define LED2_PIN_INVERSE    1
 
 // -----------------------------------------------------------------------------
@@ -2140,21 +2234,23 @@
     #define MANUFACTURER            "STM_RELAY"
     #define DEVICE                  "2CH"
 
+    // UART
+    #define UART_SUPPORT                1
+    #define UART1_TX_PIN                1
+    #define UART1_RX_PIN                3
+
     // Relays
     #define RELAY_PROVIDER_STM_SUPPORT  1
+    #define RELAY_PROVIDER_STM_PORT     1
 
-    #define RELAY1_PROVIDER          RELAY_PROVIDER_STM
-    #define RELAY2_PROVIDER          RELAY_PROVIDER_STM
+    #define RELAY1_PROVIDER             RELAY_PROVIDER_STM
+    #define RELAY2_PROVIDER             RELAY_PROVIDER_STM
 
     // Make sure we space out serial writes when relays are in sync. ref:
     // - https://github.com/xoseperez/espurna/issues/1130
     // - https://github.com/xoseperez/espurna/issues/1519
     // - https://github.com/xoseperez/espurna/pull/1520
     #define RELAY_DELAY_INTERLOCK    100
-
-    // Remove UART noise on serial line
-    // (or use `#define DEBUG_PORT Serial1` instead)
-    #define DEBUG_SERIAL_SUPPORT    0
 
 // -----------------------------------------------------------------------------
 // Tonbux Powerstrip02
@@ -2165,6 +2261,9 @@
     // Info
     #define MANUFACTURER        "TONBUX"
     #define DEVICE              "POWERSTRIP02"
+
+    // Disable UART noise since this board uses GPIO3
+    #define UART_SUPPORT        0
 
     // Buttons
     #define BUTTON1_PIN         5
@@ -2220,21 +2319,21 @@
 #elif defined(HEYGO_HY02)
 
     // Info
-    #define MANUFACTURER		"HEYGO"
-    #define DEVICE				"HY02"
+    #define MANUFACTURER        "HEYGO"
+    #define DEVICE              "HY02"
 
     // Buttons
-    #define BUTTON1_PIN			13
-    #define BUTTON1_CONFIG		BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
-    #define BUTTON1_RELAY		1
+    #define BUTTON1_PIN         13
+    #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
 
     // Relays
-    #define RELAY1_PIN			12
-    #define RELAY1_TYPE			RELAY_TYPE_NORMAL
+    #define RELAY1_PIN          12
+    #define RELAY1_TYPE         RELAY_TYPE_NORMAL
 
     // LEDs
-    #define LED1_PIN			4
-    #define LED1_PIN_INVERSE	0
+    #define LED1_PIN            4
+    #define LED1_PIN_INVERSE    0
 
 // -----------------------------------------------------------------------------
 // Maxcio W-US002S
@@ -2243,35 +2342,35 @@
 #elif defined(MAXCIO_WUS002S)
 
     // Info
-    #define MANUFACTURER		"MAXCIO"
-    #define DEVICE				"WUS002S"
+    #define MANUFACTURER        "MAXCIO"
+    #define DEVICE              "WUS002S"
 
     // Buttons
-    #define BUTTON1_PIN			2
-    #define BUTTON1_CONFIG		BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
-    #define BUTTON1_RELAY		1
+    #define BUTTON1_PIN         2
+    #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
 
     // Relays
-    #define RELAY1_PIN			13
-    #define RELAY1_TYPE			RELAY_TYPE_NORMAL
+    #define RELAY1_PIN          13
+    #define RELAY1_TYPE         RELAY_TYPE_NORMAL
 
     // LEDs
-    #define LED1_PIN			3
-    #define LED1_PIN_INVERSE	0
+    #define LED1_PIN            3
+    #define LED1_PIN_INVERSE    0
 
     // HLW8012
     #ifndef HLW8012_SUPPORT
-    #define HLW8012_SUPPORT		1
+    #define HLW8012_SUPPORT     1
     #endif
-    #define HLW8012_SEL_PIN		12
-    #define HLW8012_CF1_PIN		5
-    #define HLW8012_CF_PIN		4
+    #define HLW8012_SEL_PIN     12
+    #define HLW8012_CF1_PIN     5
+    #define HLW8012_CF_PIN      4
 
     #define HLW8012_CURRENT_R               0.002            // Current resistor
     #define HLW8012_VOLTAGE_R_UP            ( 2 * 1000000 )  // Upstream voltage resistor
 
     // LED1 on RX pin
-    #define DEBUG_SERIAL_SUPPORT            1
+    #define UART1_RX_PIN        GPIO_NONE
 
 // -----------------------------------------------------------------------------
 // Maxcio W-DE004
@@ -2280,21 +2379,21 @@
 #elif defined(MAXCIO_WDE004)
 
     // Info
-    #define MANUFACTURER		"MAXCIO"
-    #define DEVICE				"WDE004"
+    #define MANUFACTURER        "MAXCIO"
+    #define DEVICE              "WDE004"
 
     // Buttons
-    #define BUTTON1_PIN			1
-    #define BUTTON1_CONFIG		BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
-    #define BUTTON1_RELAY		1
+    #define BUTTON1_PIN         1
+    #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
 
     // Relays
-    #define RELAY1_PIN			14
-    #define RELAY1_TYPE			RELAY_TYPE_NORMAL
+    #define RELAY1_PIN          14
+    #define RELAY1_TYPE         RELAY_TYPE_NORMAL
 
     // LEDs
-    #define LED1_PIN			13
-    #define LED1_PIN_INVERSE	1
+    #define LED1_PIN            13
+    #define LED1_PIN_INVERSE    1
 
 // -----------------------------------------------------------------------------
 // Maxcio W-UK007S
@@ -2343,25 +2442,25 @@
 #elif defined(OUKITEL_P1)
 
     // Info
-    #define MANUFACTURER		"Oukitel"
-    #define DEVICE				"P1"
+    #define MANUFACTURER        "Oukitel"
+    #define DEVICE              "P1"
 
     // Buttons
-    #define BUTTON1_PIN			13
-    #define BUTTON1_CONFIG		BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
-    #define BUTTON1_RELAY		1
+    #define BUTTON1_PIN         13
+    #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
 
     // Relays
     // Right
-    #define RELAY1_PIN			12
-    #define RELAY1_TYPE			RELAY_TYPE_NORMAL
+    #define RELAY1_PIN          12
+    #define RELAY1_TYPE         RELAY_TYPE_NORMAL
     // Left
-    #define RELAY2_PIN			15
-    #define RELAY2_TYPE			RELAY_TYPE_NORMAL
+    #define RELAY2_PIN          15
+    #define RELAY2_TYPE         RELAY_TYPE_NORMAL
 
     // LEDs
-    #define LED1_PIN			0  // blue
-    #define LED1_PIN_INVERSE	1
+    #define LED1_PIN            0  // blue
+    #define LED1_PIN_INVERSE    1
     #define LED1_MODE           LED_MODE_WIFI
 
 // -----------------------------------------------------------------------------
@@ -2371,25 +2470,28 @@
 #elif defined(YIDIAN_XSSSA05)
 
     // Info
-    #define MANUFACTURER		"YIDIAN"
-    #define DEVICE				"XSSSA05"
+    #define MANUFACTURER        "YIDIAN"
+    #define DEVICE              "XSSSA05"
+
+    // Disable UART noise since this board uses GPIO3
+    #define UART_SUPPORT        0
 
     // Buttons
-    #define BUTTON1_PIN			13
-    #define BUTTON1_CONFIG		BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
-    #define BUTTON1_RELAY		1
+    #define BUTTON1_PIN         13
+    #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
+    #define BUTTON1_RELAY       1
 
     // Relays
-    #define RELAY1_PIN			12
-    #define RELAY1_TYPE			RELAY_TYPE_NORMAL
+    #define RELAY1_PIN          12
+    #define RELAY1_TYPE         RELAY_TYPE_NORMAL
 
     // LEDs
-    #define LED1_PIN			0  // red
-    #define LED1_PIN_INVERSE	1
+    #define LED1_PIN            0  // red
+    #define LED1_PIN_INVERSE    1
     #define LED1_MODE           LED_MODE_WIFI
 
-    #define LED2_PIN			15  // blue
-    #define LED2_PIN_INVERSE	1
+    #define LED2_PIN            15  // blue
+    #define LED2_PIN_INVERSE    1
     #define LED2_MODE           LED_MODE_RELAY
 
     // HLW8012
@@ -2705,9 +2807,8 @@
     #define MANUFACTURER            "ZHILDE"
     #define DEVICE                  "44EU_W"
 
-    // Based on the reporter, this product uses GPIO1 and 3 for the button
-    // and onboard LED, so hardware serial should be disabled...
-    #define DEBUG_SERIAL_SUPPORT    0
+    // Disable UART noise since this board uses GPIO1 and GPIO3
+    #define UART_SUPPORT        0
 
     // Buttons
     #define BUTTON1_PIN             3
@@ -2741,7 +2842,7 @@
 
     // Based on https://templates.blakadder.com/ZLD64-EU-W.html ,
     // This product uses GPIO1 for LED and 3 for the button, so hardware serial should be disabled...
-    #define DEBUG_SERIAL_SUPPORT    0
+    #define UART_SUPPORT            0
 
     #define BUTTON1_PIN             3
     #define BUTTON1_CONFIG          BUTTON_PUSHBUTTON | BUTTON_SET_PULLUP | BUTTON_DEFAULT_HIGH
@@ -3005,7 +3106,7 @@
     #define DEVICE              "ZLD_34EU"
 
     // Disable UART noise since this board uses GPIO3
-    #define DEBUG_SERIAL_SUPPORT    0
+    #define UART_SUPPORT        0
 
     // Buttons
     #define BUTTON1_PIN         16
@@ -3042,7 +3143,6 @@
     #define LED2_RELAY          2
     #define LED3_RELAY          3
     #define LED4_RELAY          4
-
 
 // -----------------------------------------------------------------------------
 // Bruno Horta's OnOfre
@@ -3162,7 +3262,7 @@
     #define HLW8012_INTERRUPT_ON        FALLING
 
     // BUTTON1 and LED1 are using Serial pins
-    #define DEBUG_SERIAL_SUPPORT        0
+    #define UART_SUPPORT                0
 
 // -----------------------------------------------------------------------------
 // Similar to both devices above but also with switchable USB ports
@@ -3197,14 +3297,19 @@
     #define LED2_MODE                   LED_MODE_FINDME
     #define LED2_RELAY                  1
 
-    // Disable UART noise
-    #define DEBUG_SERIAL_SUPPORT        0
+    // Sensor works through serial port
+    #define UART_SUPPORT                1
+
+    #define UART1_BAUDRATE              4800
+    #define UART1_TX_PIN                GPIO_NONE
+    #define UART1_RX_PIN                3
 
     // CSE7766
     #ifndef CSE7766_SUPPORT
-    #define CSE7766_SUPPORT     1
+    #define CSE7766_SUPPORT             1
     #endif
-    #define CSE7766_RX_PIN      3
+
+    #define CSE7766_PORT                1
 
 // -----------------------------------------------------------------------------
 // Teckin SP21
@@ -3228,7 +3333,6 @@
     // LEDs
     #define LED1_PIN                    2
     #define LED1_PIN_INVERSE            1
-
 
 // -----------------------------------------------------------------------------
 // Teckin SP22 v1.4 - v1.6
@@ -3272,7 +3376,7 @@
     #define HLW8012_INTERRUPT_ON        FALLING
 
     // BUTTON1 and LED1 are using Serial pins
-    #define DEBUG_SERIAL_SUPPORT        0
+    #define UART_SUPPORT                0
 
 // -----------------------------------------------------------------------------
 // Teckin SP22 v1.4 - v1.6
@@ -3389,7 +3493,7 @@
     #define LED1_PIN_INVERSE    1
 
     // LED1 is using TX pin
-    #define DEBUG_SERIAL_SUPPORT 0
+    #define UART_SUPPORT        0
 
 // ----------------------------------------------------------------------------------------
 //  Power socket 16A similar to BLITZWOLF_BWSHPX but button pin differs
@@ -3435,8 +3539,8 @@
     #define HLW8012_INTERRUPT_ON        FALLING
 
 // ----------------------------------------------------------------------------------------
-//  Power strip 15A - 3 Sockets + 3 USB ports 
-//  This device uses just one digital button (main one). All other three buttons are connected 
+//  Power strip 15A - 3 Sockets + 3 USB ports
+//  This device uses just one digital button (main one). All other three buttons are connected
 //  to the ADC pin via resistors with different values. This approach is known under the name of
 //  "Resistor Ladder" - https://en.wikipedia.org/wiki/Resistor_ladder
 //  https://www.amazon.de/-/en/gp/product/B085XXCPRD
@@ -3448,13 +3552,9 @@
     #define MANUFACTURER                "GOSUND"
     #define DEVICE                      "P1"
 
-    
     //Enable this to view buttons analog level.
     //Or, use adc terminal command
     //#define ANALOG_SUPPORT                1
-
-    // Disable UART noise
-    #define DEBUG_SERIAL_SUPPORT            0
 
     // Buttons
     #define BUTTON_PROVIDER_GPIO_SUPPORT    1
@@ -3488,11 +3588,19 @@
 
     // LEDs
     #define LED1_PIN                        2
-    #define LED1_PIN_INVERSE                1    
+    #define LED1_PIN_INVERSE                1
+
+    // Sensor uses UART0
+    #define UART_SUPPORT                    1
+
+    #define UART1_BAUDRATE                  4800
+    #define UART1_TX_PIN                    GPIO_NONE
+    #define UART1_RX_PIN                    3
 
     // CSE7766
     #define CSE7766_SUPPORT                 1
-    #define CSE7766_RX_PIN                  3
+
+    #define CSE7766_PORT                    1
 
 // ----------------------------------------------------------------------------------------
 //  Homecube 16A is similar but some pins differ and it also has RGB LEDs
@@ -3576,9 +3684,6 @@
     #define LED2_MODE                   LED_MODE_FINDME
     #define LED2_RELAY                  1
 
-    // Disable UART noise
-    #define DEBUG_SERIAL_SUPPORT        0
-
     // HJL01 / BL0937
     #ifndef HLW8012_SUPPORT
     #define HLW8012_SUPPORT             1
@@ -3586,6 +3691,9 @@
     #define HLW8012_SEL_PIN             3
     #define HLW8012_CF1_PIN             14
     #define HLW8012_CF_PIN              5
+
+    // Disable UART noise
+    #define UART_SUPPORT                0
 
     #define HLW8012_SEL_CURRENT         LOW
     #define HLW8012_CURRENT_RATIO       25740
@@ -3731,7 +3839,6 @@
     #define BUTTON1_PIN         4
     #define BUTTON1_CONFIG      BUTTON_SWITCH | BUTTON_DEFAULT_BOOT
     #define BUTTON1_RELAY       1
-
     #define BUTTON1_PRESS       BUTTON_ACTION_TOGGLE
     #define BUTTON1_RELEASE     BUTTON_ACTION_TOGGLE
 
@@ -3764,9 +3871,9 @@
      #define NTC_SUPPORT        1
      #define SENSOR_SUPPORT     1
      #define NTC_BETA           3350
-     #define NTC_R_UP           10000
+     #define NTC_R_UP           32000
      #define NTC_R_DOWN         0
-     #define NTC_R0             8000
+     #define NTC_R0             10000
 
 #elif defined(ALLTERCO_SHELLY25)
     // Info
@@ -3941,8 +4048,8 @@
     // Light
     #define LIGHT_PROVIDER      LIGHT_PROVIDER_DIMMER
     #define LIGHT_STEP          8
-    #define LIGHT_CH1_PIN       5   // warm white
-    #define LIGHT_CH2_PIN       4   // cold white
+    #define LIGHT_CH1_PIN       5   // WARM WHITE
+    #define LIGHT_CH2_PIN       4   // COLD WHITE
 
     // https://www.xiaomitoday.com/xiaomi-mijia-mjtd01yl-led-desk-lamp-review/
     #define LIGHT_COLDWHITE_MIRED 153
@@ -4300,7 +4407,12 @@
     // Info
     #define MANUFACTURER            "FOXEL"
     #define DEVICE                  "LIGHTFOX_DUAL"
-    #define SERIAL_BAUDRATE         19200
+
+    #define UART1_BAUDRATE          19200
+    #define UART1_TX_PIN            1
+    #define UART1_RX_PIN            3
+
+    #define LIGHTFOX_PORT           1
 
     // Relays
     #define LIGHTFOX_RELAYS         2
@@ -4317,9 +4429,6 @@
     #define BUTTON2_RELAY           2
     #define BUTTON3_RELAY           2
     #define BUTTON4_RELAY           1
-
-    // Conflicts with relay operation
-    #define DEBUG_SERIAL_SUPPORT            0
 
 // -----------------------------------------------------------------------------
 // Teckin SP20
@@ -4477,15 +4586,21 @@
     #define MANUFACTURER        "TUYA"
     #define DEVICE              "GENERIC_DIMMER"
 
-    #define TUYA_SUPPORT        1
-    #define LIGHT_PROVIDER      LIGHT_PROVIDER_CUSTOM
+    #define UART_SUPPORT        1
 
-    #define LED1_GPIO           14
+    #define UART1_BAUDRATE      9600
+    #define UART1_TX_PIN        1
+    #define UART1_RX_PIN        3
+
+    #define TUYA_SUPPORT        1
+    #define TUYA_PORT           1
 
     #define TUYA_CH_STATE_DPID  1
     #define TUYA_CH1_DPID       2
 
-    #define DEBUG_SERIAL_SUPPORT    0
+    #define LIGHT_PROVIDER      LIGHT_PROVIDER_CUSTOM
+
+    #define LED1_GPIO           14
 
 // -----------------------------------------------------------------------------
 // Etekcity ESW01-USA
@@ -4541,6 +4656,7 @@
     #define DEVICE                  "UAP1"
 
     // Inputs
+    #define DIGITAL_SUPPORT         1
     #define DIGITAL1_PIN            4
     #define DIGITAL2_PIN            5
 
@@ -4559,7 +4675,7 @@
     #define LED1_PIN                2
 
     // Disable UART noise
-    #define DEBUG_SERIAL_SUPPORT    0
+    #define UART_SUPPORT            0
 
 // -----------------------------------------------------------------------------
 // TFLAG NX-SM100 & NX-SM200
@@ -4722,9 +4838,12 @@
     #define LED1_PIN                13
     #define LED1_PIN_INVERSE        1
 
-    // KINGART module handles the UART, can't print any debug messages
     #define KINGART_CURTAIN_SUPPORT     1
-    #define DEBUG_SERIAL_SUPPORT        0
+    #define KINGART_CURTAIN_PORT        1
+
+    #define UART1_BAUDRATE          19200
+    #define UART1_TX_PIN            1
+    #define UART1_RX_PIN            3
 
 // -----------------------------------------------------------------------------
 // LSC Smart LED Light Strip (Smart CXonnect Series) available ACTION (Germany)
@@ -4820,9 +4939,8 @@
     #define MANUFACTURER            "NEDIS"
     #define DEVICE                  "WIFIP310FWT"
 
-    // Based on the reporter, this product uses GPIO1 and 3 for the button
-    // and onboard LED, so hardware serial should be disabled...
-    #define DEBUG_SERIAL_SUPPORT    0
+    // Disable UART noise since this board uses GPIO1 and GPIO3
+    #define UART_SUPPORT            0
 
     // Buttons
     #define BUTTON1_PIN             3
@@ -4874,6 +4992,9 @@
     // Info
     #define MANUFACTURER        "ARLEC"
     #define DEVICE              "PB89HA"
+
+    // Disable UART noise since this board uses GPIO1 and GPIO3
+    #define UART_SUPPORT        0
 
     // Buttons
     #define BUTTON1_PIN         3
@@ -4986,20 +5107,18 @@
 #elif defined(LSC_E27_10W_WHITE)
 
     // Info
-    #define MANUFACTURER                  "LSC"
-    #define DEVICE                        "E27_10W_WHITE"
-    #define LIGHT_PROVIDER                LIGHT_PROVIDER_DIMMER
+    #define MANUFACTURER        "LSC"
+    #define DEVICE              "E27_10W_WHITE"
+    #define LIGHT_PROVIDER      LIGHT_PROVIDER_DIMMER
 
     // Light
-    #define LIGHT_CH1_PIN                 5       // WARM WHITE LED PWM PIN
-    #define LIGHT_CH1_INVERSE             0
-    #define LIGHT_CH2_PIN                 4       // COLD WHITE LED PWM PIN
-    #define LIGHT_CH2_INVERSE             0
+    #define LIGHT_CH1_PIN       5       // WARM WHITE
+    #define LIGHT_CH2_PIN       4       // COLD WHITE
 
 // -----------------------------------------------------------------------------
 // Mirabella Genio White A60
 // https://www.woolworths.com.au/shop/productdetails/877102/mirabella-smart-led-gls-es-9w-cool-white
-// Like https://www.mirabellagenio.com.au/product-range/mirabella-genio-wi-fi-dimmable-9w-led-gls-bulb/ 
+// Like https://www.mirabellagenio.com.au/product-range/mirabella-genio-wi-fi-dimmable-9w-led-gls-bulb/
 // but in cardboard box, Item # I002604
 // -----------------------------------------------------------------------------
 
@@ -5031,6 +5150,9 @@
     #define MANUFACTURER        "YAGUSMART"
     #define DEVICE              "TOUCH_HWMOD_1G"
 
+    // Disable UART noise since this board uses GPIO3
+    #define UART_SUPPORT        0
+
     #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
     #define BUTTON1_PIN         3
     #define BUTTON1_RELAY       1
@@ -5049,11 +5171,12 @@
     #define LED1_PIN_INVERSE            1
     #define LED1_MODE                   LED_MODE_WIFI
 
-    #define DEBUG_SERIAL_SUPPORT        0
-
 #elif defined(YAGUSMART_TOUCH_HWMOD_2G)
     #define MANUFACTURER        "YAGUSMART"
     #define DEVICE              "TOUCH_HWMOD_2G"
+
+    // Disable UART noise since this board uses GPIO3
+    #define UART_SUPPORT        0
 
     #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH
     #define BUTTON1_PIN         3
@@ -5086,11 +5209,12 @@
     #define LED1_PIN_INVERSE            1
     #define LED1_MODE                   LED_MODE_WIFI
 
-    #define DEBUG_SERIAL_SUPPORT        0
-
 #elif defined(YAGUSMART_TOUCH_HWMOD_3G)
     #define MANUFACTURER        "YAGUSMART"
     #define DEVICE              "TOUCH_HWMOD_3G"
+
+    // Disable UART noise since this board uses GPIO1 and GPIO3
+    #define UART_SUPPORT        0
 
     #define BUTTON1_CONFIG      BUTTON_PUSHBUTTON | BUTTON_DEFAULT_HIGH | BUTTON_SET_PULLUP
     #define BUTTON1_PIN         12
@@ -5132,8 +5256,6 @@
     #define LED1_PIN                    0
     #define LED1_PIN_INVERSE            1
     #define LED1_MODE                   LED_MODE_WIFI
-
-    #define DEBUG_SERIAL_SUPPORT        0
 
 #else
 

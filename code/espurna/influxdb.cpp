@@ -132,12 +132,12 @@ void _idbInitClient() {
 
 // -----------------------------------------------------------------------------
 
-bool _idbWebSocketOnKeyCheck(const char * key, JsonVariant& value) {
-    return (strncmp(key, "idb", 3) == 0);
+bool _idbWebSocketOnKeyCheck(espurna::StringView key, const JsonVariant& value) {
+    return espurna::settings::query::samePrefix(key, STRING_VIEW("idb"));
 }
 
 void _idbWebSocketOnVisible(JsonObject& root) {
-    wsPayloadModule(root, "idb");
+    wsPayloadModule(root, PSTR("idb"));
 }
 
 void _idbWebSocketOnConnected(JsonObject& root) {
@@ -158,8 +158,8 @@ void _idbConfigure() {
     if (_idb_enabled && !_idb_client) _idbInitClient();
 }
 
-void _idbSendSensor(const String& topic, unsigned char id, double, const char* value) {
-    idbSend(topic.c_str(), id, value);
+void _idbSendSensor(const espurna::sensor::Value& value) {
+    idbSend(magnitudeTopic(value.type).c_str(), value.index, value.repr.c_str());
 }
 
 void _idbSendStatus(size_t id, bool status) {
@@ -216,7 +216,7 @@ void _idbFlush() {
 
     // TODO: should we always store specific pairs like tspk keeps relay / sensor readings?
     //       note that we also send heartbeat data, persistent values should be flagged
-    const String device = getHostname();
+    const String device = systemHostname();
 
     _idb_client->payload = "";
     for (auto& pair : _idb_client->values) {
@@ -278,6 +278,27 @@ bool _idbHeartbeat(espurna::heartbeat::Mask mask) {
     return true;
 }
 
+#if TERMINAL_SUPPORT
+PROGMEM_STRING(IdbSend, "IDB.SEND");
+
+static void idbTerminalSend(::terminal::CommandContext&& ctx) {
+    if (ctx.argv.size() != 4) {
+        terminalError(ctx, F("idb.send <topic> <id> <value>"));
+        return;
+    }
+
+    idbSend(ctx.argv[1].c_str(), ctx.argv[2].toInt(), ctx.argv[3].c_str());
+}
+
+static constexpr ::terminal::Command IdbCommands[] {
+    {IdbSend, idbTerminalSend},
+};
+
+static void idbTerminalSetup() {
+    espurna::terminal::add(IdbCommands);
+}
+#endif
+
 void idbSetup() {
     systemHeartbeat(_idbHeartbeat);
     systemHeartbeat(_idbHeartbeat,
@@ -305,14 +326,7 @@ void idbSetup() {
     espurnaRegisterLoop(_idbFlush);
 
     #if TERMINAL_SUPPORT
-        terminalRegisterCommand(F("IDB.SEND"), [](::terminal::CommandContext&& ctx) {
-            if (ctx.argv.size() != 4) {
-                terminalError(ctx, F("idb.send <topic> <id> <value>"));
-                return;
-            }
-
-            idbSend(ctx.argv[1].c_str(), ctx.argv[2].toInt(), ctx.argv[3].c_str());
-        });
+        idbTerminalSetup();
     #endif
 }
 

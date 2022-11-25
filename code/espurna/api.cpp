@@ -28,7 +28,7 @@ Copyright (C) 2020-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 
 // -----------------------------------------------------------------------------
 
-PathParts::PathParts(const String& path) :
+PathParts::PathParts(espurna::StringView path) :
     _path(path)
 {
     if (!_path.length()) {
@@ -40,7 +40,7 @@ PathParts::PathParts(const String& path) :
     size_t length { 0ul };
     size_t offset { 0ul };
 
-    const char* p { _path.c_str() };
+    const char* p { _path.begin() };
     if (*p == '\0') {
        goto error;
     }
@@ -193,43 +193,76 @@ error:
     return false;
 }
 
-#if WEB_SUPPORT
-
-String ApiRequest::wildcard(int index) const {
+espurna::StringView PathParts::wildcard(const PathParts& pattern, const PathParts& value, int index) {
     if (index < 0) {
         index = std::abs(index + 1);
     }
 
-    if (std::abs(index) >= _pattern.parts().size()) {
-        return _empty_string();
-    }
+    espurna::StringView out;
 
-    int counter { 0 };
-    auto& pattern = _pattern.parts();
+    if (std::abs(index) < pattern.parts().size()) {
+        const auto& pattern_parts = pattern.parts();
+        int counter { 0 };
 
-    for (unsigned int part = 0; part < pattern.size(); ++part) {
-        auto& lhs = pattern[part];
-        if (PathPart::Type::SingleWildcard == lhs.type) {
-            if (counter == index) {
-                auto& rhs = _parts.parts()[part];
-                return _parts.path().substring(rhs.offset, rhs.offset + rhs.length);
+        for (size_t part = 0; part < pattern.size(); ++part) {
+            const auto& lhs = pattern_parts[part];
+            const auto& rhs = value.parts()[part];
+
+            const auto path = value.path();
+
+            switch (lhs.type) {
+            case PathPart::Type::Value:
+            case PathPart::Type::Unknown:
+                break;
+
+            case PathPart::Type::SingleWildcard:
+                if (counter == index) {
+                    out = espurna::StringView(
+                        path.begin() + rhs.offset, path.begin() + rhs.offset + rhs.length);
+                    return out;
+                }
+                ++counter;
+                break;
+
+            case PathPart::Type::MultiWildcard:
+                if (counter == index) {
+                    out = espurna::StringView(
+                        path.begin() + rhs.offset, path.end());
+                }
+                return out;
             }
-            ++counter;
         }
     }
 
-    return _empty_string();
+    return out;
+}
+
+size_t PathParts::wildcards(const PathParts& pattern) {
+    size_t out { 0 };
+
+    for (const auto& part : pattern) {
+        switch (part.type) {
+        case PathPart::Type::Unknown:
+        case PathPart::Type::Value:
+        case PathPart::Type::MultiWildcard:
+            break;
+        case PathPart::Type::SingleWildcard:
+            ++out;
+            break;
+        }
+    }
+
+    return out;
+}
+
+#if WEB_SUPPORT
+
+String ApiRequest::wildcard(int index) const {
+    return PathParts::wildcard(_pattern, _parts, index).toString();
 }
 
 size_t ApiRequest::wildcards() const {
-    size_t result { 0ul };
-    for (auto& part : _pattern) {
-        if (PathPart::Type::SingleWildcard == part.type) {
-            ++result;
-        }
-    }
-
-    return result;
+    return PathParts::wildcards(_pattern);
 }
 
 #endif
@@ -339,65 +372,6 @@ class ApiJsonWebHandler final : public ApiBaseWebHandler {
 public:
     static constexpr size_t BufferSize { API_JSON_BUFFER_SIZE };
 
-    struct ReadOnlyStream : public Stream {
-        ReadOnlyStream() = delete;
-        explicit ReadOnlyStream(const uint8_t* buffer, size_t size) :
-            _buffer(buffer),
-            _size(size)
-        {}
-
-        int available() override {
-            return _size - _index;
-        }
-
-        int peek() override {
-            if (_index < _size) {
-                return static_cast<int>(_buffer[_index]);
-            }
-
-            return -1;
-        }
-
-        int read() override {
-            auto peeked = peek();
-            if (peeked >= 0) {
-                ++_index;
-            }
-
-            return peeked;
-        }
-
-        // since we are fixed in size, no need for any timeouts and the only available option is to return full chunk of data
-        size_t readBytes(uint8_t* ptr, size_t size) override {
-            if ((_index < _size) && ((_size - _index) >= size)) {
-                std::copy(_buffer + _index, _buffer + _index + size, ptr);
-                _index += size;
-                return size;
-            }
-
-            return 0;
-        }
-
-        size_t readBytes(char* ptr, size_t size) override {
-			return readBytes(reinterpret_cast<uint8_t*>(ptr), size);
-		}
-
-        void flush() override {
-        }
-
-        size_t write(const uint8_t*, size_t) override {
-            return 0;
-        }
-
-        size_t write(uint8_t) override {
-            return 0;
-        }
-
-        const uint8_t* _buffer;
-        const size_t _size;
-        size_t _index { 0 };
-    };
-
     ApiJsonWebHandler() = delete;
     ApiJsonWebHandler(const ApiJsonWebHandler&) = delete;
     ApiJsonWebHandler(ApiJsonWebHandler&&) = delete;
@@ -447,7 +421,7 @@ public:
     }
 
     void _handleGet(AsyncWebServerRequest* request, ApiRequest& apireq) {
-        DynamicJsonBuffer jsonBuffer(API_JSON_BUFFER_SIZE);
+        DynamicJsonBuffer jsonBuffer(BufferSize);
         JsonObject& root = jsonBuffer.createObject();
         if (!_get(apireq, root)) {
             request->send(500);
@@ -467,10 +441,12 @@ public:
     void _handlePut(AsyncWebServerRequest* request, uint8_t* data, size_t size) {
         // XXX: arduinojson v5 de-serializer will happily read garbage from raw ptr, since there's no length limit
         //      this is fixed in v6 though. for now, use a wrapper, but be aware that this actually uses more mem for the jsonbuffer
-        DynamicJsonBuffer jsonBuffer(API_JSON_BUFFER_SIZE);
-        ReadOnlyStream stream(data, size);
+        auto reader = espurna::StringView(
+            reinterpret_cast<const char*>(data),
+            reinterpret_cast<const char*>(data + size));
 
-        JsonObject& root = jsonBuffer.parseObject(stream);
+        DynamicJsonBuffer jsonBuffer(BufferSize);
+        JsonObject& root = jsonBuffer.parseObject(reader);
         if (!root.success()) {
             request->send(500);
             return;

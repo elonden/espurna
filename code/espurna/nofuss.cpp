@@ -28,12 +28,12 @@ bool _nofussEnabled = false;
 
 #if WEB_SUPPORT
 
-bool _nofussWebSocketOnKeyCheck(const char * key, JsonVariant& value) {
-    return (strncmp(key, "nofuss", 6) == 0);
+bool _nofussWebSocketOnKeyCheck(espurna::StringView key, const JsonVariant& value) {
+    return espurna::settings::query::samePrefix(key, STRING_VIEW("nofuss"));
 }
 
 void _nofussWebSocketOnVisible(JsonObject& root) {
-    wsPayloadModule(root, "nofuss");
+    wsPayloadModule(root, PSTR("nofuss"));
 }
 
 void _nofussWebSocketOnConnected(JsonObject& root) {
@@ -59,19 +59,25 @@ void _nofussConfigure() {
         return;
     }
 
-    char device[256];
-    sprintf_P(device, PSTR("%s_%s"), getAppName(), getDevice());
-
-    auto timestamp = String(__UNIX_TIMESTAMP__);
     NoFUSSClient.setServer(nofussServer);
+
+    const auto info = buildInfo();
+    String device;
+    device += String(info.app.name);
+    device += '_';
+    device += String(info.hardware.device);
     NoFUSSClient.setDevice(device);
-    NoFUSSClient.setVersion(getVersion());
-    NoFUSSClient.setBuild(timestamp);
+
+    const auto version = String(info.app.version);
+    NoFUSSClient.setVersion(version);
+
+    const auto time = String(buildTime());
+    NoFUSSClient.setBuild(time);
 
     DEBUG_MSG_P(PSTR("[NOFUSS] Server: %s\n"), nofussServer.c_str());
-    DEBUG_MSG_P(PSTR("[NOFUSS] Device: %s\n"), device);
-    DEBUG_MSG_P(PSTR("[NOFUSS] Version: %s\n"), getVersion());
-    DEBUG_MSG_P(PSTR("[NOFUSS] Build: %s\n"), timestamp.c_str());
+    DEBUG_MSG_P(PSTR("[NOFUSS] Device: %s\n"), device.c_str());
+    DEBUG_MSG_P(PSTR("[NOFUSS] Version: %s\n"), version.c_str());
+    DEBUG_MSG_P(PSTR("[NOFUSS] Build: %s\n"), time.c_str());
 }
 
 // -----------------------------------------------------------------------------
@@ -92,14 +98,20 @@ void _nofussLoop() {
 }
 
 #if TERMINAL_SUPPORT
+PROGMEM_STRING(NofussCommand, "NOFUSS");
 
-void _nofussInitCommands() {
-    terminalRegisterCommand(F("NOFUSS"), [](::terminal::CommandContext&& ctx) {
-        terminalOK(ctx);
-        nofussRun();
-    });
+static void _nofussCommand(::terminal::CommandContext&& ctx) {
+    terminalOK(ctx);
+    nofussRun();
 }
 
+static constexpr ::terminal::Command NofussCommands[] PROGMEM {
+    {NofussCommand, _nofussCommand},
+};
+
+void _nofussCommandsSetup() {
+    espurna::terminal::add(NofussCommands);
+}
 #endif // TERMINAL_SUPPORT
 
 void nofussSetup() {
@@ -174,7 +186,7 @@ void nofussSetup() {
     #endif
 
     #if TERMINAL_SUPPORT
-        _nofussInitCommands();
+        _nofussCommandsSetup();
     #endif
 
     // Main callbacks
