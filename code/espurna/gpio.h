@@ -26,8 +26,15 @@ struct Origin {
     const char* base;
     uint8_t pin;
     bool lock;
+    bool result;
     SourceLocation location;
 };
+
+struct Mode {
+    int8_t value;
+};
+
+Mode pin_mode(uint8_t);
 
 } // namespace gpio
 
@@ -50,13 +57,13 @@ public:
     virtual BasePinPtr pin(unsigned char index) = 0;
 };
 
-GpioBase& hardwareGpio();
 GpioBase* gpioBase(GpioType);
 
-BasePinPtr gpioRegister(GpioBase& base, unsigned char gpio);
-BasePinPtr gpioRegister(unsigned char gpio);
+GpioBase& hardwareGpio();
+void hardwareGpioIgnore(unsigned char gpio);
 
 void gpioLockOrigin(espurna::gpio::Origin);
+
 void gpioSetup();
 
 inline size_t gpioPins(const GpioBase& base) {
@@ -79,16 +86,20 @@ inline bool gpioLock(GpioBase& base, unsigned char pin, bool value,
         espurna::SourceLocation source_location = espurna::make_source_location())
 {
     if (base.valid(pin)) {
+        const auto old = base.lock(pin);
+        base.lock(pin, value);
+
+        const auto result = value != old;
+
         gpioLockOrigin(espurna::gpio::Origin{
             .base = base.id(),
             .pin = pin,
             .lock = value,
-            .location = source_location
+            .result = result,
+            .location = trim_source_location(source_location),
         });
 
-        bool old = base.lock(pin);
-        base.lock(pin, value);
-        return (value != old);
+        return result;
     }
 
     return false;
@@ -128,3 +139,8 @@ inline bool gpioLocked(const GpioBase& base, unsigned char gpio) {
 inline bool gpioLocked(unsigned char gpio) {
     return gpioLocked(hardwareGpio(), gpio);
 }
+
+BasePinPtr gpioRegister(GpioBase& base, unsigned char gpio,
+        espurna::SourceLocation source_location = espurna::make_source_location());
+BasePinPtr gpioRegister(unsigned char gpio,
+        espurna::SourceLocation source_location = espurna::make_source_location());

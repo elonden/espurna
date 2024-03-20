@@ -26,8 +26,10 @@ set(COMMON_FLAGS
     -DCORE_MOCK
     -DHOST_MOCK=1
     -DLWIP_IPV6=0
+    -Dstrnlen_P=strnlen
     -Dmemcmp_P=memcmp
     -Dstrncasecmp_P=strncasecmp
+    -DUNITY_INCLUDE_DOUBLE
 )
 
 set(ESPURNA_PATH ${CMAKE_SOURCE_DIR}/../../../ CACHE PATH "ESPurna source code repo root")
@@ -56,14 +58,15 @@ FetchContent_GetProperties(unitygit SOURCE_DIR)
 
 target_compile_options(unity BEFORE PRIVATE
     -DUNITY_OUTPUT_COLOR
+    -DUNITY_INCLUDE_DOUBLE
 )
 
-set(esp8266_version 313b3c07ecccbe6fee24aa9fa447c4aed16ca499)
+set(esp8266_version a4a8782c5611c02df3c0dd4744c86d02a4f037d3)
 
 FetchContent_Declare(
     esp8266git
     GIT_REPOSITORY https://github.com/esp8266/Arduino/
-    GIT_TAG 9fcf14f81fa9be589530e9596b7c5a264dc81ee8
+    GIT_TAG ${esp8266_version}
     GIT_CONFIG core.autocrlf=false core.eol=lf
     SOURCE_DIR ${CMAKE_SOURCE_DIR}/cache/esp8266git-${esp8266_version}-src
     SUBBUILD_DIR ${CMAKE_SOURCE_DIR}/cache/esp8266git-${esp8266_version}-subbuild
@@ -71,6 +74,21 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(esp8266git)
 FetchContent_GetProperties(esp8266git SOURCE_DIR)
+
+set(arduinojson_version v5.13.5)
+
+FetchContent_Declare(
+    ArduinoJson
+    GIT_REPOSITORY https://github.com/bblanchon/ArduinoJson
+    GIT_TAG ${arduinojson_version}
+    GIT_CONFIG core.autocrlf=false core.eol=lf
+    SOURCE_DIR ${CMAKE_SOURCE_DIR}/cache/arduinojson-${arduinojson_version}-src
+    SOURCE_SUBDIR src
+    SUBBUILD_DIR ${CMAKE_SOURCE_DIR}/cache/arduinojson-${arduinojson_version}-subbuild
+)
+
+FetchContent_MakeAvailable(ArduinoJson)
+FetchContent_GetProperties(ArduinoJson SOURCE_DIR)
 
 # mock'ed Arduino Core headers sometimes expect to be included with some pre-requisites, which we obviously don't have
 add_library(common INTERFACE)
@@ -91,10 +109,10 @@ add_library(esp8266 STATIC
     ${esp8266git_SOURCE_DIR}/tests/host/common/MockUART.cpp
     ${esp8266git_SOURCE_DIR}/tests/host/common/MockTools.cpp
     ${esp8266git_SOURCE_DIR}/tests/host/common/MocklwIP.cpp
-    ${esp8266git_SOURCE_DIR}/tests/host/common/MockDigital.cpp
     ${esp8266git_SOURCE_DIR}/tests/host/common/MockEsp.cpp
     ${esp8266git_SOURCE_DIR}/tests/host/common/UdpContextSocket.cpp
     ${esp8266git_SOURCE_DIR}/tests/host/common/user_interface.cpp
+    ${esp8266git_SOURCE_DIR}/tests/host/common/HostWiring.cpp
     ${esp8266git_SOURCE_DIR}/tests/host/common/md5.c
     ${esp8266git_SOURCE_DIR}/tests/host/common/noniso.c
     ${esp8266git_SOURCE_DIR}/tests/host/common/flash_hal_mock.cpp
@@ -148,19 +166,22 @@ target_compile_options(esp8266 PUBLIC
 target_link_libraries(esp8266 PUBLIC common)
 
 # our library source (maybe some day this will be a simple glob)
-add_library(terminal STATIC
+add_library(espurna STATIC
+    ${ESPURNA_PATH}/code/espurna/settings_convert.cpp
     ${ESPURNA_PATH}/code/espurna/terminal_commands.cpp
     ${ESPURNA_PATH}/code/espurna/terminal_parsing.cpp
     ${ESPURNA_PATH}/code/espurna/types.cpp
+    ${ESPURNA_PATH}/code/espurna/utils.cpp
 )
-target_link_libraries(terminal PUBLIC esp8266)
-target_include_directories(terminal PUBLIC
+target_link_libraries(espurna PUBLIC esp8266)
+target_include_directories(espurna PUBLIC
     ${ESPURNA_PATH}/code/
+    ${CMAKE_SOURCE_DIR}/cache/arduinojson-${arduinojson_version}-src/src
 )
-target_compile_options(terminal PUBLIC
+target_compile_options(espurna PUBLIC
     ${COMMON_FLAGS}
 )
-target_compile_options(terminal PRIVATE
+target_compile_options(espurna PRIVATE
     -Wall
     -Wextra
 )
@@ -171,8 +192,9 @@ list(APPEND CMAKE_CTEST_ARGUMENTS "--output-on-failure")
 
 function(build_tests)
     foreach(ARG IN LISTS ARGN)
-        add_executable(test-${ARG} src/${ARG}/${ARG}.cpp)
-        target_link_libraries(test-${ARG} terminal unity)
+        file(GLOB ${ARG}_sources "src/${ARG}/*.h" "src/${ARG}/*.cpp")
+        add_executable(test-${ARG} ${${ARG}_sources})
+        target_link_libraries(test-${ARG} espurna unity)
         target_compile_options(test-${ARG} PRIVATE
             ${COMMON_FLAGS}
             -Wall
@@ -183,4 +205,14 @@ function(build_tests)
     endforeach()
 endfunction()
 
-build_tests(basic settings terminal tuya types url)
+build_tests(
+    basic
+    embedis
+    settings
+    terminal
+    tuya
+    types
+    url
+    utils
+    filters
+)

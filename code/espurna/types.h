@@ -10,6 +10,7 @@ Copyright (C) 2019-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 #include <Arduino.h>
 #include <sys/pgmspace.h>
 
+#include <chrono>
 #include <memory>
 
 #include "compat.h"
@@ -18,6 +19,20 @@ Copyright (C) 2019-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 extern "C" int memcmp_P(const void*, const void*, size_t);
 
 namespace espurna {
+namespace duration {
+
+// Only micros are 64bit, millis stored as 32bit to match what is actually returned & used by Core functions
+using Microseconds = std::chrono::duration<uint64_t, std::micro>;
+using Milliseconds = std::chrono::duration<uint32_t, std::milli>;
+
+// Our own helper types, a lot of things are based off of the `millis()`
+// (and it can be seamlessly used with any Core functions accepting u32 millisecond inputs)
+using Seconds = std::chrono::duration<uint32_t, std::ratio<1> >;
+using Minutes = std::chrono::duration<uint32_t, std::ratio<60> >;
+using Hours = std::chrono::duration<uint32_t, std::ratio<Minutes::period::num * 60> >;
+using Days = std::chrono::duration<uint32_t, std::ratio<Hours::period::num * 24> >;
+
+} // namespace duration
 
 // base class for loop / oneshot / generic callbacks that do not need arguments
 // *not expected* to be used instead of std function at all times.
@@ -111,6 +126,7 @@ struct Callback {
         return isSimple() && (_storage.simple == callback);
     }
 
+    void reset();
     void swap(Callback&) noexcept;
     void operator()() const;
 
@@ -143,7 +159,6 @@ private:
 
     void copy(const Callback&);
     void move(Callback&) noexcept;
-    void reset();
 
     Storage _storage { nullptr };
     StorageType _type { StorageType::Empty };
@@ -155,6 +170,16 @@ struct SourceLocation {
     const char* file;
     const char* func;
 };
+
+inline SourceLocation trim_source_location(SourceLocation value) {
+    for (auto* ptr = value.file; *ptr != '\0'; ++ptr) {
+        if ((*ptr == '/') || (*ptr == '\\')) {
+            value.file = ptr + 1;
+        }
+    }
+
+    return value;
+}
 
 inline constexpr SourceLocation make_source_location(
         int line = __builtin_LINE(),
@@ -178,13 +203,19 @@ struct ReentryLock {
     ReentryLock(ReentryLock&&) = default;
     ReentryLock& operator=(ReentryLock&&) = delete;
 
-    ReentryLock(bool& handle) :
+    explicit ReentryLock(bool& handle) :
         _initialized(!handle),
         _handle(handle)
-    {}
+    {
+        lock();
+    }
 
     ~ReentryLock() {
         unlock();
+    }
+
+    explicit operator bool() const {
+        return initialized();
     }
 
     bool initialized() const {
@@ -233,7 +264,8 @@ struct StringView {
         _len(len)
     {}
 
-    constexpr StringView(const char* ptr) noexcept :
+    template <typename T, typename = typename std::enable_if<std::is_pointer<T>::value>::type>
+    constexpr StringView(T ptr) noexcept :
         StringView(ptr, __builtin_strlen(ptr))
     {}
 
@@ -277,6 +309,10 @@ struct StringView {
     }
 
     constexpr const char* c_str() const {
+        return _ptr;
+    }
+
+    constexpr const char* data() const {
         return _ptr;
     }
 
@@ -341,6 +377,13 @@ inline String operator+=(String& lhs, StringView rhs) {
     return lhs;
 }
 
+inline String operator+(StringView lhs, const String& rhs) {
+    String out;
+    out += lhs.toString();
+    out += rhs;
+    return out;
+}
+
 #ifndef PROGMEM_STRING_ATTR
 #define PROGMEM_STRING_ATTR __attribute__((section( "\".irom0.pstr." __FILE__ "." __STRINGIZE(__LINE__) "."  __STRINGIZE(__COUNTER__) "\", \"aSM\", @progbits, 1 #")))
 #endif
@@ -349,7 +392,6 @@ inline String operator+=(String& lhs, StringView rhs) {
 #define PROGMEM_STRING(NAME, X)\
         alignas(4) static constexpr char NAME[] PROGMEM_STRING_ATTR = (X)
 #endif
-
 
 #ifndef STRING_VIEW
 #define STRING_VIEW(X) ({\
@@ -363,5 +405,8 @@ inline String operator+=(String& lhs, StringView rhs) {
         alignas(4) static constexpr char __pstr__ ## NAME ##  __ [] PROGMEM_STRING_ATTR = (X);\
         constexpr auto NAME = ::espurna::StringView(__pstr__ ## NAME ## __)
 #endif
+
+#define STRING_VIEW_SETTING(X)\
+    ((__builtin_strlen(X) > 0) ? STRING_VIEW(X) : StringView())
 
 } // namespace espurna

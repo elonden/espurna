@@ -143,6 +143,10 @@
 #define TELNET_MAX_CLIENTS      1               // Max number of concurrent telnet clients
 #endif
 
+#ifndef TELNET_LINE_BUFFER_SIZE
+#define TELNET_LINE_BUFFER_SIZE 256             // Temporary buffer, when data arrives in multiple packets without a new-line
+#endif
+
 // Enable this flag to add support for reverse telnet (+800 bytes)
 // This is useful to telnet to a device behind a NAT or firewall
 // To use this feature, start a listen server on a publicly reachable host with e.g. "ncat -vlp <port>" and use the MQTT reverse telnet command to connect
@@ -578,7 +582,13 @@
 #endif
 
 #ifndef WIFI_SLEEP_MODE
-#define WIFI_SLEEP_MODE             WIFI_NONE_SLEEP        // WIFI_NONE_SLEEP, WIFI_LIGHT_SLEEP or WIFI_MODEM_SLEEP
+#define WIFI_SLEEP_MODE             WIFI_SLEEP_MODE_NONE   // WIFI_SLEEP_MODE_NONE  - disable all WiFi passive power saving modes (default)
+                                                           // WIFI_SLEEP_MODE_MODEM - allow WiFi modem to periodially sleep, based on DTIM
+                                                           //                         beacon interval time (usually between .1s and 1s)
+                                                           // WIFI_SLEEP_MODE_LIGHT - in addition to the MODEM sleep also allow CPU to sleep
+                                                           //                         between .5s and 3s (varies, depends on active timers)
+                                                           //
+                                                           // (ref. https://www.espressif.com/sites/default/files/9b-esp8266-low_power_solutions_en_0.pdf)
 #endif
 
 #ifndef WIFI_SCAN_NETWORKS
@@ -626,6 +636,9 @@
 #define WIFI_OUTPUT_POWER_DBM                    20.0f
 #endif
 
+#ifndef WIFI_BOOT_MODE
+#define WIFI_BOOT_MODE                           WIFI_ENABLED
+#endif
 
 // -----------------------------------------------------------------------------
 // WEB
@@ -1210,10 +1223,6 @@
 #define LIGHT_TRANSITION_TIME   500         // Time in millis from color to color
 #endif
 
-#ifndef LIGHT_RELAY_ENABLED
-#define LIGHT_RELAY_ENABLED     1           // Add a virtual switch that controls the global light state. Depends on RELAY_SUPPORT
-#endif
-
 // -----------------------------------------------------------------------------
 // DOMOTICZ
 // -----------------------------------------------------------------------------
@@ -1747,7 +1756,7 @@
 #endif
 
 #ifndef PWM_FREQUENCY
-#define PWM_FREQUENCY               1000 // (Hz)
+#define PWM_FREQUENCY               500  // (Hz)
 #endif
 
 #ifndef PWM_RESOLUTION

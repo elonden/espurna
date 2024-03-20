@@ -65,10 +65,6 @@ namespace build {
 
 constexpr float WhiteFactor { LIGHT_WHITE_FACTOR };
 
-constexpr bool relay() {
-    return 1 == LIGHT_RELAY_ENABLED;
-}
-
 constexpr bool color() {
     return 1 == LIGHT_USE_COLOR;
 }
@@ -287,10 +283,6 @@ String mqttGroup() {
     return getSetting("mqttGroupColor");
 }
 
-bool relay() {
-    return getSetting("ltRelay", build::relay());
-}
-
 bool color() {
     return getSetting("useColor", build::color());
 }
@@ -364,34 +356,10 @@ espurna::duration::Milliseconds saveDelay() {
 
 #if RELAY_SUPPORT
 
-// Setup virtual relays contolling the light's state
-// TODO: only do per-channel setup optionally
-
-class LightChannelProvider : public RelayProviderBase {
+class LightStateProvider : public RelayProviderBase {
 public:
-    LightChannelProvider() = delete;
-    explicit LightChannelProvider(size_t id) :
-        _id(id)
-    {}
-
-    const char* id() const override {
-        return "light_channel";
-    }
-
-    void change(bool status) override {
-        lightState(_id, status);
-        lightState(true);
-        lightUpdate();
-    }
-
-private:
-    size_t _id { RelaysMax };
-};
-
-class LightGlobalProvider : public RelayProviderBase {
-public:
-    const char* id() const override {
-        return "light_global";
+    espurna::StringView id() const override {
+        return STRING_VIEW("light-state");
     }
 
     void change(bool status) override {
@@ -502,15 +470,6 @@ struct Pointers {
 
     LightChannel* cold() const {
         return _data[4];
-    }
-
-    template <typename ...Args>
-    void maybeApply(Args&&... args) const {
-        for (auto ptr : _data) {
-            if (ptr) {
-                (*ptr).apply(std::forward<Args>(args)...);
-            }
-        }
     }
 
 private:
@@ -715,7 +674,6 @@ auto _light_report_delay = espurna::light::build::reportDelay();
 std::forward_list<LightReportListener> _light_report;
 LightTimerValue<int> _light_report_timer(0);
 
-bool _light_has_controls = false;
 bool _light_has_cold_white = false;
 bool _light_has_warm_white = false;
 bool _light_has_color = false;
@@ -849,6 +807,10 @@ private:
 
 LightTemperature _light_temperature;
 
+#if RELAY_SUPPORT
+auto _light_state_relay_id = RelaysMax;
+#endif
+
 bool _light_state_changed = false;
 LightStateListener _light_state_listener = nullptr;
 
@@ -963,17 +925,24 @@ private:
 };
 
 void _lightValuesWithCct(LightChannels& channels) {
+    const auto Brightness = _light_brightness;
     const auto CctFactor = _light_temperature.factor();
     const auto White = LightScaledWhite();
 
     auto ptr = espurna::light::Pointers(channels);
     (*ptr.warm()).apply(
-        LightResetInput::forWarm(CctFactor), White);
+        LightResetInput::forWarm(CctFactor), White, Brightness);
     (*ptr.cold()).apply(
-        LightResetInput::forCold(CctFactor), White);
+        LightResetInput::forCold(CctFactor), White, Brightness);
 
-    const auto Brightness = _light_brightness;
-    ptr.maybeApply(Brightness);
+    if (ptr.red() && ptr.green() && ptr.blue()) {
+        (*ptr.red()).apply(
+            LightResetInput{espurna::light::ValueMin});
+        (*ptr.green()).apply(
+            LightResetInput{espurna::light::ValueMin});
+        (*ptr.blue()).apply(
+            LightResetInput{espurna::light::ValueMin});
+    }
 }
 
 // To handle both 4 and 5 channels, allow to 'adjust' internal factor calculation after construction
@@ -1069,7 +1038,7 @@ private:
     float _luminance;
 };
 
-// When `useWhite` is enabled, white channels are 'detached' from the processing and their value depends on the RGB ones.
+// When `useWhite` is enabled, warm white channel is 'detached' from the processing and its value depends on the input RGB.
 // Common calculation is to subtract 'white value' from the RGB based on the minimum channel value, e.g. [250, 150, 50] becomes [200, 100, 0, 50]
 //
 // General case when `useCCT` is disabled, but there are 4 channels.
@@ -1104,7 +1073,9 @@ void _lightValuesWithRgbWhite(LightChannels& channels) {
 // Instead of the above, use `mireds` value as a range for warm and cold channels, based on the calculated rgb common values
 // Every value is also scaled by `brightness` after applying all of the previous steps
 // Notice that we completely ignore inputs and reset them to either kelvin'ized or hardcoded ValueMin or ValueMax
-// (also, RED **always** stays at ValueMax b/c we never go above 6.6k kelvin)
+
+// Heavily depends on the used temperature range; by default (153...500), we stay on the 'warm side'
+// of the scale and effectively never enable blue. Setting cold mireds to 100 will use the whole range.
 
 espurna::light::Rgb _lightKelvinRgb(espurna::light::Kelvin kelvin) {
     kelvin.value /= 100;
@@ -1125,7 +1096,9 @@ espurna::light::Rgb _lightKelvinRgb(espurna::light::Kelvin kelvin) {
 
 void _lightValuesWithRgbCct(LightChannels& channels) {
     const auto Temperature = _light_temperature;
-    const auto RgbFromKelvin = _lightKelvinRgb(Temperature.kelvin());
+
+    const auto Kelvin = Temperature.kelvin();
+    const auto RgbFromKelvin = _lightKelvinRgb(Kelvin);
 
     auto rgb = LightRgbWithoutWhite{RgbFromKelvin};
     rgb.adjustOutput(rgb.inputMin());
@@ -1144,12 +1117,15 @@ void _lightValuesWithRgbCct(LightChannels& channels) {
         rgb, Brightness);
 
     const auto White = LightScaledWhite(rgb.factor());
-    (*ptr.warm()).apply(
-        LightResetInput::forWarm(Temperature.factor()),
-        White, Brightness);
-    (*ptr.cold()).apply(
-        LightResetInput::forCold(Temperature.factor()),
-        White, Brightness);
+    if (ptr.warm() || ptr.cold()) {
+        if (ptr.warm()) {
+            (*ptr.warm()).apply(White, Brightness);
+        }
+
+        if (ptr.cold()) {
+            (*ptr.cold()).apply(White, Brightness);
+        }
+    }
 }
 
 // UI hints about channel distribution
@@ -1566,6 +1542,11 @@ String _lightGroupPayload() {
 // +offset, -offset or the new value
 
 long _lightAdjustValue(long value, espurna::StringView operation) {
+    const auto dot = std::find(operation.begin(), operation.end(), '.');
+    if (dot != operation.end()) {
+        operation = espurna::StringView(operation.begin(), dot);
+    }
+    
     if (operation.length()) {
         switch (operation[0]) {
         case '+':
@@ -2320,10 +2301,7 @@ void _lightMqttCallback(unsigned int type, espurna::StringView topic, espurna::S
 
         mqttSubscribe(MQTT_TOPIC_CHANNEL "/+");
         mqttSubscribe(MQTT_TOPIC_BRIGHTNESS);
-
-        if (!_light_has_controls) {
-            mqttSubscribe(MQTT_TOPIC_LIGHT);
-        }
+        mqttSubscribe(MQTT_TOPIC_LIGHT);
 
         if (_light_has_color) {
             mqttSubscribe(MQTT_TOPIC_COLOR_RGB);
@@ -2437,10 +2415,7 @@ void lightMQTT() {
     }
 
     mqttSend(MQTT_TOPIC_BRIGHTNESS, _light_brightness.toString().c_str());
-
-    if (!_light_has_controls) {
-        mqttSend(MQTT_TOPIC_LIGHT, _light_state ? "1" : "0");
-    }
+    mqttSend(MQTT_TOPIC_LIGHT, _light_state ? "1" : "0");
 }
 
 void lightMQTTGroup() {
@@ -2575,19 +2550,17 @@ void _lightApiSetup() {
         }
     );
 
-    if (!_light_has_controls) {
-        apiRegister(F(MQTT_TOPIC_LIGHT),
-            [](ApiRequest& request) {
-                request.send(lightState() ? "1" : "0");
-                return true;
-            },
-            [](ApiRequest& request) {
-                _lightParsePayload(request.param(F("value")));
-                lightUpdate();
-                return true;
-            }
-        );
-    }
+    apiRegister(F(MQTT_TOPIC_LIGHT),
+        [](ApiRequest& request) {
+            request.send(lightState() ? "1" : "0");
+            return true;
+        },
+        [](ApiRequest& request) {
+            _lightParsePayload(request.param(F("value")));
+            lightUpdate();
+            return true;
+        }
+    );
 }
 
 } // namespace
@@ -2599,9 +2572,9 @@ void _lightApiSetup() {
 namespace {
 
 bool _lightWebSocketOnKeyCheck(espurna::StringView key, const JsonVariant&) {
-    return espurna::settings::query::samePrefix(key, STRING_VIEW("light"))
-        || espurna::settings::query::samePrefix(key, STRING_VIEW("use"))
-        || espurna::settings::query::samePrefix(key, STRING_VIEW("lt"));
+    return key.startsWith(STRING_VIEW("light"))
+        || key.startsWith(STRING_VIEW("use"))
+        || key.startsWith(STRING_VIEW("lt"));
 }
 
 void _lightWebSocketStatus(JsonObject& root) {
@@ -2635,6 +2608,9 @@ void _lightWebSocketOnVisible(JsonObject& root) {
     wsPayloadModule(root, PSTR("light"));
 
     JsonObject& light = root.createNestedObject("light");
+#if RELAY_SUPPORT
+    light["state_relay_id"] = _light_state_relay_id;
+#endif
 
     JsonArray& channels = light.createNestedArray("channels");
 
@@ -2662,11 +2638,6 @@ void _lightWebSocketOnConnected(JsonObject& root) {
     root["ltSaveDelay"] = _light_save_delay.count();
     root["ltTime"] = _light_transition_time.count();
     root["ltStep"] = _light_transition_step.count();
-#if RELAY_SUPPORT
-    root["ltRelay"] = espurna::light::settings::relay();
-#else
-    root["ltRelay"] = false;
-#endif
 }
 
 void _lightWebSocketOnAction(uint32_t client_id, const char* action, JsonObject& data) {
@@ -3494,37 +3465,48 @@ void _lightConfigure() {
     }
 
     const auto last_process_input_values = _light_process_input_values;
-    _light_process_input_values =
-        (_light_use_color) ? (
-            (_light_use_cct) ? _lightValuesWithRgbCct :
-            (_light_use_white) ? _lightValuesWithRgbWhite :
-            _lightValuesWithBrightnessExceptWhite) :
-        (_light_use_cct) ?
-            _lightValuesWithCct :
-            _lightValuesWithBrightness;
+    auto process_input_values =
+        (_light_use_color && _light_use_white && _light_use_cct)
+            ? _lightValuesWithCct :
+        (_light_use_color && _light_use_white)
+            ? _lightValuesWithRgbWhite :
+        (_light_use_color && _light_use_cct)
+            ? _lightValuesWithRgbCct :
+        (_light_use_color)
+            ? _lightValuesWithBrightnessExceptWhite :
+        (_light_use_cct)
+            ? _lightValuesWithCct
+            : _lightValuesWithBrightness;
 
-    if (!_light_update && (last_process_input_values != _light_process_input_values)) {
+    _light_process_input_values = process_input_values;
+    if (!_light_update && (last_process_input_values != process_input_values)) {
         lightUpdate(false);
     }
 }
 
-#if RELAY_SUPPORT
+void _lightSleepSetup() {
+    systemBeforeSleep(
+        []() {
+            size_t id = 0;
+            for (auto& channel : _light_channels) {
+                _lightProviderHandleValue(id, 0);
+                ++id;
 
-void _lightRelayBoot() {
-    if (_light_has_controls) {
-        return;
-    }
+                channel.value = 0;
+            }
 
-    auto next_id = relayCount();
-    if (relayAdd(std::make_unique<LightGlobalProvider>())) {
-        _light_state_listener = [next_id](bool state) {
-            relayStatus(next_id, state);
-        };
-        _light_has_controls = true;
-    }
+            _lightProviderHandleState(false);
+            _lightProviderHandleUpdate();
+            espurna::time::blockingDelay(
+                espurna::duration::Milliseconds{ 100 });
+        });
+
+    systemAfterSleep(
+        []() {
+            _lightUpdate(false);
+            _light_state_changed = true;
+        });
 }
-
-#endif
 
 void _lightBoot() {
     const size_t Channels { _light_channels.size() };
@@ -3625,11 +3607,30 @@ void _lightSettingsMigrate(int version) {
         moveSetting("lightColdMired", "ltColdMired");
         moveSetting("lightWarmMired", "ltWarmMired");
     }
+
+    if (version < 14) {
+        delSetting(F("ltRelay"));
+    }
 }
 
 } // namespace
 
 // -----------------------------------------------------------------------------
+
+RelayProviderBasePtr lightMakeStateRelayProvider(size_t id) {
+#if RELAY_SUPPORT
+    if (!_light_state_listener) {
+        _light_state_relay_id = id;
+        _light_state_listener = [id](bool state) {
+            relayStatus(id, state);
+        };
+
+        return std::make_unique<LightStateProvider>();
+    }
+#endif
+
+    return nullptr;
+}
 
 void lightSetup() {
     migrateVersion(_lightSettingsMigrate);
@@ -3686,12 +3687,6 @@ void lightSetup() {
 
     _lightBoot();
 
-#if RELAY_SUPPORT
-    if (espurna::light::settings::relay()) {
-        _lightRelayBoot();
-    }
-#endif
-
     #if WEB_SUPPORT
         wsRegister()
             .onVisible(_lightWebSocketOnVisible)
@@ -3712,6 +3707,8 @@ void lightSetup() {
     #if TERMINAL_SUPPORT
         _lightInitCommands();
     #endif
+
+        _lightSleepSetup();
 
     espurnaRegisterReload(_lightConfigure);
     espurnaRegisterLoop([]() {

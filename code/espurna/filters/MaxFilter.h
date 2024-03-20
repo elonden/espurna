@@ -15,8 +15,16 @@ public:
         _value = std::max(value, _value);
     }
 
+    bool status() const override {
+        return true;
+    }
+
+    void resize(size_t) override {
+        _reset();
+    }
+
     void reset() override {
-        _value = 0;
+        _reset();
     }
 
     double value() const {
@@ -24,5 +32,9 @@ public:
     }
 
 private:
+    void _reset() {
+        _value = 0;
+    }
+
     double _value = 0;
 };

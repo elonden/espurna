@@ -9,6 +9,7 @@ Copyright (C) 2019 by Xose Pérez <xose dot perez at gmail dot com>
 #pragma once
 
 #include "settings.h"
+#include "types.h"
 
 #include <chrono>
 #include <cstdint>
@@ -38,6 +39,17 @@ enum class CustomResetReason : uint8_t {
 };
 
 namespace espurna {
+namespace sleep {
+
+// Both LIGHT and DEEP sleep accept microseconds as input
+// Effective limit is ~31bit - 1 in size
+using Microseconds = std::chrono::duration<uint32_t, std::micro>;
+
+constexpr auto FpmSleepMin = Microseconds{ 1000 };
+constexpr auto FpmSleepIndefinite = Microseconds{ 0xFFFFFFF };
+
+} // namespace sleep
+
 namespace system {
 
 struct RandomDevice {
@@ -61,17 +73,6 @@ namespace duration {
 // TODO: cpu frequency value might not always be true at build-time, detect at boot instead?
 // (also notice the discrepancy when OTA'ing between different values, as CPU *may* keep the old value)
 using ClockCycles = std::chrono::duration<uint32_t, std::ratio<1, F_CPU>>;
-
-// Only micros are 64bit, millis stored as 32bit to match what is actually returned & used by Core functions
-using Microseconds = std::chrono::duration<uint64_t, std::micro>;
-using Milliseconds = std::chrono::duration<uint32_t, std::milli>;
-
-// Our own helper types, a lot of things are based off of the `millis()`
-// (and it can be seamlessly used with any Core functions accepting u32 millisecond inputs)
-using Seconds = std::chrono::duration<uint32_t, std::ratio<1>>;
-using Minutes = std::chrono::duration<uint32_t, std::ratio<60>>;
-using Hours = std::chrono::duration<uint32_t, std::ratio<Minutes::period::num * 60>>;
-using Days = std::chrono::duration<uint32_t, std::ratio<Hours::period::num * 24>>;
 
 namespace critical {
 
@@ -187,24 +188,31 @@ inline void delay(CoreClock::duration value) {
 bool tryDelay(CoreClock::time_point start, CoreClock::duration timeout, CoreClock::duration interval);
 
 template <typename T>
-void blockingDelay(CoreClock::duration timeout, CoreClock::duration interval, T&& blocked) {
-    const auto start = CoreClock::now();
-    for (;;) {
-        if (tryDelay(start, timeout, interval)) {
-            break;
-        }
+bool blockingDelay(CoreClock::duration timeout, CoreClock::duration interval, T&& blocked) {
+    auto result = blocked();
 
-        if (!blocked()) {
-            break;
+    if (result) {
+        const auto start = CoreClock::now();
+        for (;;) {
+            if (tryDelay(start, timeout, interval)) {
+                break;
+            }
+
+            result = blocked();
+            if (!result) {
+                break;
+            }
         }
     }
+
+    return result;
 }
 
 // Local implementation of 'delay' that will make sure that we wait for the specified
 // time, even after being woken up. Allows to service Core tasks that are scheduled
 // in-between context switches, where the interval controls the minimum sleep time.
-void blockingDelay(CoreClock::duration timeout, CoreClock::duration interval);
-void blockingDelay(CoreClock::duration timeout);
+bool blockingDelay(CoreClock::duration timeout, CoreClock::duration interval);
+bool blockingDelay(CoreClock::duration timeout);
 
 } // namespace time
 
@@ -345,17 +353,20 @@ Mode currentMode();
 
 } // namespace heartbeat
 
+namespace sleep {
+
+enum class Interrupt {
+    Low,
+    High,
+};
+
+} // namespace sleep
+
 namespace settings {
 namespace internal {
 
 template <>
 heartbeat::Mode convert(const String&);
-
-template <>
-duration::Milliseconds convert(const String&);
-
-template <>
-std::chrono::duration<float> convert(const String&);
 
 String serialize(heartbeat::Mode);
 String serialize(duration::Seconds);
@@ -365,6 +376,9 @@ String serialize(duration::ClockCycles);
 } // namespace internal
 } // namespace settings
 } // namespace espurna
+
+uint32_t randomNumber(uint32_t minimum, uint32_t maximum);
+uint32_t randomNumber();
 
 unsigned long systemFreeStack();
 
@@ -392,6 +406,19 @@ String customResetReasonToPayload(CustomResetReason);
 void deferredReset(espurna::duration::Milliseconds, CustomResetReason);
 void prepareReset(CustomResetReason);
 bool pendingDeferredReset();
+
+bool wakeupModemForcedSleep();
+bool prepareModemForcedSleep();
+
+using SleepCallback = void (*)();
+void systemBeforeSleep(SleepCallback);
+void systemAfterSleep(SleepCallback);
+
+bool instantLightSleep();
+bool instantLightSleep(espurna::sleep::Microseconds);
+bool instantLightSleep(uint8_t pin, espurna::sleep::Interrupt);
+
+bool instantDeepSleep(espurna::sleep::Microseconds);
 
 unsigned long systemLoadAverage();
 

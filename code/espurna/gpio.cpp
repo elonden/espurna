@@ -15,8 +15,12 @@ Copyright (C) 2017-2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #include "mcp23s08_pin.h"
 
+#include "rtcmem.h"
 #include "terminal.h"
+
+#if WEB_SUPPORT
 #include "ws.h"
+#endif
 
 namespace espurna {
 namespace peripherals {
@@ -405,6 +409,75 @@ void mode(uint8_t pin, uint8_t mode) {
 namespace gpio {
 namespace {
 
+struct PinInfo {
+    int8_t mode;
+    bool reading;
+};
+
+struct Info {
+    uint32_t outputs;
+    uint32_t readings;
+
+    bool gpio16_output;
+    bool gpio16_reading;
+    bool gpio16_pulldown;
+};
+
+Info info() {
+    using peripherals::reg_read;
+    using namespace peripherals;
+
+    return Info{
+        .outputs = reg_read(pin::GpioEnable),
+        .readings = reg_read(pin::GpioInput),
+        .gpio16_output = (reg_read(rtc::GpioEnable) & 0b1) != 0,
+        .gpio16_reading = (reg_read(rtc::GpioInput) & 0b1) != 0,
+        .gpio16_pulldown = (reg_read(rtc::PadXpdDcdcConf) & rtc::Pulldown) != 0,
+    };
+}
+
+struct Reading {
+    bool value;
+};
+
+Reading pin_reading(uint8_t pin, Info info) {
+    Reading out;
+    if (pin == 16) {
+        out.value = info.gpio16_reading;
+    } else {
+        out.value = (info.readings & (1 << pin)) != 0;
+    }
+
+    return out;
+}
+
+Mode pin_mode(uint8_t pin, Info info) {
+    Mode out;
+    out.value = OUTPUT;
+
+    if (((pin == 16) && info.gpio16_output)
+        || ((info.outputs & (pin << pin)) != 0))
+    {
+        return out;
+    }
+
+    if ((pin == 16) && (info.gpio16_pulldown)) {
+        out.value = INPUT_PULLDOWN;
+        return out;
+    }
+
+    using namespace peripherals;
+
+    const auto iomux = reg_read(pin::ioMuxAddress(pin));
+    if ((iomux & pin::PullupMask) != 0) {
+        out.value = INPUT_PULLUP;
+    } else {
+        out.value = INPUT;
+    }
+
+    return out;
+}
+
 namespace settings {
 namespace options {
 
@@ -551,6 +624,19 @@ private:
     Mask _mask;
 };
 
+namespace origin {
+namespace internal {
+
+std::forward_list<Origin> origins;
+
+} // namespace internal
+
+void add(Origin origin) {
+    internal::origins.emplace_front(origin);
+}
+
+} // namespace origin
+
 #if WEB_SUPPORT
 namespace web {
 
@@ -581,6 +667,19 @@ void onVisible(JsonObject& root) {
             }
         }
     }
+
+    JsonObject& info = root.createNestedObject(F("gpioInfo"));
+
+    JsonArray& locks = info.createNestedArray(F("failed-locks"));
+    for (auto& origin : origin::internal::origins) {
+        if (!origin.result) {
+            JsonArray& entry = locks.createNestedArray();
+            entry.add(origin.pin);
+            entry.add(origin.location.file);
+            entry.add(origin.location.func);
+            entry.add(origin.location.line);
+        }
+    }
 }
 
 void setup() {
@@ -591,19 +690,6 @@ void setup() {
 } // namespace web
 #endif
 
-namespace origin {
-namespace internal {
-
-std::forward_list<Origin> origins;
-
-} // namespace internal
-
-void add(Origin origin) {
-    internal::origins.emplace_front(origin);
-}
-
-} // namespace origin
-
 #if TERMINAL_SUPPORT
 namespace terminal {
 
@@ -611,7 +697,8 @@ PROGMEM_STRING(GpioLocks, "GPIO.LOCKS");
 
 void gpio_list_origins(::terminal::CommandContext&& ctx) {
     for (const auto& origin : origin::internal::origins) {
-        ctx.output.printf_P(PSTR("%c %s GPIO%hhu\t%d:%s:%s\n"),
+        ctx.output.printf_P(PSTR("%c %c %s GPIO%hhu\t%d:%s:%s\n"),
+            origin.result ? ' ' : '!',
             origin.lock ? '*' : ' ',
             origin.base, origin.pin,
             origin.location.line,
@@ -635,13 +722,7 @@ void gpio_read_write(::terminal::CommandContext&& ctx) {
     int start = 0;
     int end = gpioPins();
 
-    using namespace peripherals;
-
-    const auto outputs = reg_read(pin::GpioEnable);
-    const auto readings = reg_read(pin::GpioInput);
-
-    const auto gpio16output = reg_read(rtc::GpioEnable);
-    const auto gpio16reading = reg_read(rtc::GpioInput);
+    const auto gpio_info = info();
 
     switch (ctx.argv.size()) {
     case 3:
@@ -650,9 +731,9 @@ void gpio_read_write(::terminal::CommandContext&& ctx) {
         // (like it is used in software I2C implementation with INPUT_PULLUP)
         const bool status = espurna::settings::internal::convert<bool>(ctx.argv[2]);
         if (pin == 16) {
-            rtc::gpio16_set(status);
+            peripherals::rtc::gpio16_set(status);
         } else {
-            pin::set(pin, status);
+            peripherals::pin::set(pin, status);
         }
         break;
     }
@@ -664,29 +745,23 @@ void gpio_read_write(::terminal::CommandContext&& ctx) {
 
     case 1:
         for (auto current = start; current < end; ++current) {
-            if (gpioValid(current)) {
-                const bool reading = (current == 16)
-                    ? ((gpio16reading & 0b1) != 0)
-                    : ((readings & (1 << current)) != 0);
-
-                const bool output = (current == 16)
-                    ? ((gpio16output & 0b1) != 0)
-                    : (outputs & (1 << current));
-
-                ctx.output.printf_P(
-                    PSTR("%c %6s @ GPIO%02d%s\n"),
-                        gpioLocked(current) ? '*' : ' ',
-                        output
-                            ? "OUTPUT"
-                            : "INPUT",
-                        current,
-                        !output
-                            ? reading
-                                ? " (HIGH)"
-                                : " (LOW)"
-                            : ""
-                    );
+            if (!gpioValid(current)) {
+                continue;
             }
+
+            const auto mode = pin_mode(current, gpio_info);
+            ctx.output.printf_P(
+                PSTR("%c %6s @ GPIO%02d%s\n"),
+                    gpioLocked(current) ? '*' : ' ',
+                    (mode.value == OUTPUT)
+                        ? PSTR("OUTPUT")
+                        : PSTR("INPUT"),
+                    current,
+                    (mode.value == OUTPUT)
+                        ? ""
+                        : pin_reading(current, gpio_info).value
+                            ? PSTR(" (HIGH)")
+                            : PSTR(" (LOW)"));
         }
 
         break;
@@ -746,6 +821,11 @@ void setup() {
 #endif
 
 } // namespace
+
+Mode pin_mode(uint8_t pin) {
+    return pin_mode(pin, info());
+}
+
 } // namespace gpio
 
 namespace settings {
@@ -813,18 +893,20 @@ GpioBase* gpioBase(GpioType type) {
     return ptr;
 }
 
-BasePinPtr gpioRegister(GpioBase& base, unsigned char gpio) {
+BasePinPtr gpioRegister(GpioBase& base, unsigned char gpio,
+        espurna::SourceLocation source_location)
+{
     BasePinPtr result;
 
-    if (gpioLock(base, gpio)) {
+    if (gpioLock(base, gpio, source_location)) {
         result = base.pin(gpio);
     }
 
     return result;
 }
 
-BasePinPtr gpioRegister(unsigned char gpio) {
-    return gpioRegister(hardwareGpio(), gpio);
+BasePinPtr gpioRegister(unsigned char gpio, espurna::SourceLocation source_location) {
+    return gpioRegister(hardwareGpio(), gpio, source_location);
 }
 
 void gpioSetup() {
@@ -834,6 +916,11 @@ void gpioSetup() {
 #if TERMINAL_SUPPORT
     espurna::gpio::terminal::setup();
 #endif
+}
+
+void hardwareGpioIgnore(unsigned char gpio) {
+    const auto value = Rtcmem->gpio_ignore;
+    Rtcmem->gpio_ignore = value | (1 << gpio);
 }
 
 void gpioLockOrigin(espurna::gpio::Origin origin) {
@@ -880,9 +967,13 @@ void pinMode(uint8_t pin, uint8_t mode) {
 // Special override for Core, allows us to skip init for certain pins when needed
 void resetPins() {
     const auto& hardware = hardwareGpio();
+    const auto ignore = Rtcmem->gpio_ignore;
 
     for (size_t pin = 0; pin < espurna::gpio::Hardware::Pins; ++pin) {
         if (!hardware.valid(pin)) {
+            continue;
+        }
+        if ((ignore & (1 << pin)) > 0) {
             continue;
         }
 #if DEBUG_SERIAL_SUPPORT

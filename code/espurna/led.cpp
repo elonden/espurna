@@ -17,18 +17,21 @@ $ pio run -e ... -t espurna/led_pattern.re.ipp
 
 #if LED_SUPPORT
 
-#include "led.h"
-#include "mqtt.h"
-#include "relay.h"
-#include "rpc.h"
-#include "ws.h"
-
 #include <algorithm>
 #include <cstring>
 #include <ctime>
 #include <chrono>
 #include <forward_list>
 #include <vector>
+
+#include "led.h"
+#include "mqtt.h"
+#include "relay.h"
+#include "rpc.h"
+
+#if WEB_SUPPORT
+#include "ws.h"
+#endif
 
 namespace espurna {
 namespace led {
@@ -543,9 +546,13 @@ LedMode mode(size_t id) {
     return getSetting({keys::Mode, id}, build::mode(id));
 }
 
+#if RELAY_SUPPORT
+
 size_t relay(size_t id) {
     return getSetting({keys::Relay, id}, build::relay(id));
 }
+
+#endif
 
 Pattern pattern(size_t id) {
     return Pattern(getSetting({keys::Pattern, id}));
@@ -602,7 +609,10 @@ String NAME (size_t id) {\
 ID_VALUE(pin)
 ID_VALUE(inverse)
 ID_VALUE(mode)
+
+#if RELAY_SUPPORT
 ID_VALUE(relay)
+#endif
 
 #undef ID_VALUE
 
@@ -764,6 +774,12 @@ bool status(Led& led, bool status) {
 
 bool status(size_t id, bool value) {
     return status(internal::leds[id], value);
+}
+
+void turn_off() {
+    for (auto& led : internal::leds) {
+        status(led, false);
+    }
 }
 
 [[gnu::unused]]
@@ -1068,6 +1084,9 @@ void setup() {
 #if TERMINAL_SUPPORT
         terminal::setup();
 #endif
+
+        systemBeforeSleep(turn_off);
+        systemAfterSleep(schedule);
 
         ::espurnaRegisterLoop(loop);
 

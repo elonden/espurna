@@ -19,16 +19,11 @@ public:
     }
 
     void reset() override {
-        if (_values.size() > 2) {
-            _values[0] = _values.back();
-            _values.resize(1);
-        } else {
-            _values.clear();
-        }
+        _reset();
     }
 
     double value() const override {
-        double sum { 0.0 };
+        double out { 0.0 };
 
         if (_values.size() > 2) {
             auto median = [](double previous, double current, double next) {
@@ -49,31 +44,40 @@ public:
                 return current;
             };
 
-            for (auto prev = _values.begin(); prev != (_values.end() - 2); ++prev) {
-                sum += median(*prev, *std::next(prev, 1), *std::next(prev, 2));
+            double counter = 0.0;
+            for (auto it = _values.begin(); it != (_values.end() - 2); ++it) {
+                out += median(*it, *std::next(it, 1), *std::next(it, 2));
+                counter += 1.0;
             }
 
-            sum /= (_values.size() - 2);
-        } else if (_values.size() > 0) {
-            sum = _values.front();
+            out /= counter;
+        } else if (_values.size() == 2) {
+            out = _values[0] + _values[1];
+            out /= 2.0;
+        } else if (_values.size() == 1) {
+            out = _values.front();
         }
 
-        return sum;
+        return out;
     }
 
-    size_t capacity() const override {
-        return _capacity;
+    bool status() const override {
+        return _values.capacity() > 0;
     }
 
     void resize(size_t capacity) override {
-        if (_capacity != capacity) {
-            _capacity = capacity;
-            _values.clear();
-            _values.reserve(_capacity + 1);
-        }
+        _values.reserve(capacity + 1);
+        _reset();
     }
 
 private:
+    void _reset() {
+        if (_values.size()) {
+            _values.erase(_values.begin(), _values.end() - 1);
+        } else {
+            _values.clear();
+        }
+    }
+
     std::vector<double> _values;
-    size_t _capacity = 0;
 };

@@ -11,7 +11,14 @@ Copyright (C) 2020-2022 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 
 #if TERMINAL_SUPPORT
 
+#if API_SUPPORT
 #include "api.h"
+#endif
+
+#if WEB_SUPPORT
+#include "ws.h"
+#endif
+
 #include "crash.h"
 #include "mqtt.h"
 #include "settings.h"
@@ -21,11 +28,8 @@ Copyright (C) 2020-2022 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 #include "terminal.h"
 #include "utils.h"
 #include "wifi.h"
-#include "ws.h"
 
 #include "libs/PrintString.h"
-
-#include "web_asyncwebprint.ipp"
 
 #include <algorithm>
 #include <utility>
@@ -37,6 +41,10 @@ Copyright (C) 2020-2022 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 // (althought, in recent Core versions, these may be set at runtime)
 extern "C" uint32_t _FS_start;
 extern "C" uint32_t _FS_end;
+
+#if WEB_SUPPORT
+#include "web_print.ipp"
+#endif
 
 namespace espurna {
 namespace terminal {
@@ -81,6 +89,53 @@ void help(CommandContext&& ctx) {
     }
 
     terminalOK(ctx);
+}
+
+PROGMEM_STRING(LightSleep, "SLEEP.LIGHT");
+
+void light_sleep(CommandContext&& ctx) {
+    if (ctx.argv.size() == 2) {
+        using namespace espurna::settings::internal::duration_convert;
+
+        const auto result = parse(ctx.argv[1], std::micro{});
+        if (!result.ok) {
+            terminalError(ctx, F("Invalid time"));
+            return;
+        }
+
+        const auto duration = to_chrono_duration<sleep::Microseconds>(result.value);
+        if (!instantLightSleep(duration)) {
+            terminalError(ctx, F("Could not sleep"));
+            return;
+        }
+
+        return;
+    }
+
+    instantLightSleep();
+}
+
+PROGMEM_STRING(DeepSleep, "SLEEP.DEEP");
+
+void deep_sleep(CommandContext&& ctx) {
+    if (ctx.argv.size() != 2) {
+        terminalError(ctx, F("SLEEP.DEEP <TIME (MICROSECONDS)>"));
+        return;
+    }
+
+    using namespace espurna::settings::internal::duration_convert;
+    const auto result = parse(ctx.argv[1], std::micro{});
+
+    if (!result.ok) {
+        terminalError(ctx, F("Invalid time"));
+        return;
+    }
+
+    const auto duration = to_chrono_duration<sleep::Microseconds>(result.value);
+    if (!instantDeepSleep(duration)) {
+        terminalError(ctx, F("Could not sleep"));
+        return;
+    }
 }
 
 PROGMEM_STRING(Reset, "RESET");
@@ -360,6 +415,9 @@ static constexpr ::terminal::Command List[] PROGMEM {
     {Heap, commands::heap},
 
     {Adc, commands::adc},
+
+    {LightSleep, commands::light_sleep},
+    {DeepSleep, commands::deep_sleep},
 
     {Reset, commands::reset},
     {EraseConfig, commands::erase_config},
@@ -644,12 +702,16 @@ void setup() {
 #if TERMINAL_WEB_API_SUPPORT
 namespace api {
 
+STRING_VIEW_INLINE(Path, TERMINAL_WEB_API_PATH);
+STRING_VIEW_INLINE(Key, "termWebApiPath");
+
 // XXX: new `apiRegister()` depends that `webServer()` is available, meaning we can't call this setup func
 // before the `webSetup()` is called. ATM, just make sure it is in order.
 
 void setup() {
 #if API_SUPPORT
-    apiRegister(getSetting("termWebApiPath", TERMINAL_WEB_API_PATH),
+    apiRegister(
+        getSetting(Key, Path),
         [](ApiRequest& api) {
             api.handle([](AsyncWebServerRequest* request) {
                 auto* response = request->beginResponseStream(F("text/plain"));
@@ -676,8 +738,9 @@ void setup() {
                 (*cmd) += '\n';
             }
 
-            api.handle([&](AsyncWebServerRequest* request) {
-                AsyncWebPrint::scheduleFromRequest(request,
+            api.handle([cmd](AsyncWebServerRequest* request) {
+                espurna::web::print::scheduleFromRequest(
+                    request,
                     [cmd](Print& out) {
                         api_find_and_call(*cmd, out);
                     });
@@ -688,8 +751,12 @@ void setup() {
     );
 #else
     webRequestRegister([](AsyncWebServerRequest* request) {
-        String path(F(API_BASE_PATH));
-        path += getSetting("termWebApiPath", TERMINAL_WEB_API_PATH);
+        STRING_VIEW_INLINE(BasePath, API_BASE_PATH);
+
+        String path;
+        path += BasePath;
+        path += getSetting(Key, Path);
+
         if (path != request->url()) {
             return false;
         }
@@ -717,7 +784,8 @@ void setup() {
 
         auto cmd = std::make_shared<String>(std::move(line));
 
-        AsyncWebPrint::scheduleFromRequest(request,
+        espurna::web::print::scheduleFromRequest(
+            request,
             [cmd](Print& out) {
                 api_find_and_call(*cmd, out);
             });

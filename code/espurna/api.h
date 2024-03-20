@@ -9,34 +9,40 @@ Copyright (C) 2020-2021 by Maxim Prokhorov <prokhorov dot max at outlook dot com
 
 #pragma once
 
-#include "espurna.h"
-
-#include "api_path.h"
 #include <functional>
 
-#if WEB_SUPPORT
+#include <ArduinoJson.h>
+
+#include "api_path.h"
 #include "api_impl.h"
-#include "web.h"
 
-bool apiAuthenticateHeader(AsyncWebServerRequest*, const String& key);
-bool apiAuthenticateParam(AsyncWebServerRequest*, const String& key);
-bool apiAuthenticate(AsyncWebServerRequest*);
-#endif
+namespace espurna {
+namespace api {
 
-void apiCommonSetup();
+using BasicHandler = std::function<bool(Request&)>;
+using JsonHandler = std::function<bool(Request&, JsonObject& reponse)>;
+
+} // namespace api
+} // namespace espurna
+
+using ApiRequest = espurna::api::Request;
+using ApiBasicHandler = espurna::api::BasicHandler;
+using ApiJsonHandler = espurna::api::JsonHandler;
+
+void apiRegister(String path,
+    espurna::api::BasicHandler&& get,
+    espurna::api::BasicHandler&& put);
+
+void apiRegister(String path,
+    espurna::api::JsonHandler&& get,
+    espurna::api::JsonHandler&& put);
+
+bool apiError(espurna::api::Request&);
+bool apiOk(espurna::api::Request&);
+
+String apiKey();
 bool apiEnabled();
 bool apiRestFul();
-String apiKey();
-
-#if WEB_SUPPORT
-using ApiBasicHandler = std::function<bool(ApiRequest&)>;
-using ApiJsonHandler = std::function<bool(ApiRequest&, JsonObject& reponse)>;
-
-void apiRegister(const String& path, ApiBasicHandler&& get, ApiBasicHandler&& put);
-void apiRegister(const String& path, ApiJsonHandler&& get, ApiJsonHandler&& put);
-
-bool apiError(ApiRequest&);
-bool apiOk(ApiRequest&);
-#endif
+void apiCommonSetup();
 
 void apiSetup();

@@ -56,15 +56,20 @@ enum class Event {
 
 using EventCallback = void(*)(Event event);
 
+enum class BootMode {
+    Disabled,
+    Enabled,
+};
+
 enum class StaMode {
     Disabled,
-    Enabled
+    Enabled,
 };
 
 enum class ApMode {
     Disabled,
     Enabled,
-    Fallback
+    Fallback,
 };
 
 } // namespace wifi
@@ -97,6 +102,9 @@ void wifiToggleSta();
 void wifiDisconnect();
 
 // Toggle WiFi modem
+bool wifiDisabled();
+void wifiDisable();
+
 void wifiTurnOff();
 void wifiTurnOn();
 

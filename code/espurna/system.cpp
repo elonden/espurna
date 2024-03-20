@@ -8,13 +8,17 @@ Copyright (C) 2019 by Xose Pérez <xose dot perez at gmail dot com>
 
 #include "espurna.h"
 
-#include "rtcmem.h"
+#if WEB_SUPPORT
 #include "ws.h"
+#endif
+
+#include "rtcmem.h"
 #include "ntp.h"
 
 #include <cstdint>
 #include <cstring>
 #include <forward_list>
+#include <random>
 #include <vector>
 
 extern "C" {
@@ -49,10 +53,21 @@ PROGMEM_STRING(None, "none");
 PROGMEM_STRING(Once, "once");
 PROGMEM_STRING(Repeat, "repeat");
 
-static constexpr espurna::settings::options::Enumeration<heartbeat::Mode> HeartbeatModeOptions[] PROGMEM {
+template <typename T>
+using Enumeration = espurna::settings::options::Enumeration<T>;
+
+static constexpr Enumeration<heartbeat::Mode> HeartbeatModeOptions[] PROGMEM {
     {heartbeat::Mode::None, None},
     {heartbeat::Mode::Once, Once},
     {heartbeat::Mode::Repeat, Repeat},
+};
+
+PROGMEM_STRING(Low, "low");
+PROGMEM_STRING(High, "high");
+
+static constexpr Enumeration<sleep::Interrupt> SleepInterruptOptions[] PROGMEM {
+    {sleep::Interrupt::Low, Low},
+    {sleep::Interrupt::High, High},
 };
 
 } // namespace options
@@ -73,6 +88,15 @@ namespace settings {
 namespace internal {
 
 template <>
+espurna::sleep::Interrupt convert(const String& value) {
+    return convert(system::settings::options::SleepInterruptOptions, value, sleep::Interrupt::Low);
+}
+
+String serialize(espurna::sleep::Interrupt value) {
+    return serialize(system::settings::options::SleepInterruptOptions, value);
+}
+
+template <>
 espurna::heartbeat::Mode convert(const String& value) {
     return convert(system::settings::options::HeartbeatModeOptions, value, heartbeat::Mode::Repeat);
 }
@@ -81,23 +105,8 @@ String serialize(espurna::heartbeat::Mode mode) {
     return serialize(system::settings::options::HeartbeatModeOptions, mode);
 }
 
-template <>
-duration::Seconds convert(const String& value) {
-    return duration::Seconds(convert<duration::Seconds::rep>(value));
-}
-
 String serialize(espurna::duration::Seconds value) {
     return serialize(value.count());
-}
-
-template <>
-std::chrono::duration<float> convert(const String& value) {
-    return std::chrono::duration<float>(convert<float>(value));
-}
-
-template <>
-duration::Milliseconds convert(const String& value) {
-    return duration::Milliseconds(convert<duration::Milliseconds::rep>(value));
 }
 
 String serialize(espurna::duration::Milliseconds value) {
@@ -110,6 +119,305 @@ String serialize(espurna::duration::ClockCycles value) {
 
 } // namespace internal
 } // namespace settings
+
+// TODO: implement 'before' and 'after' callbacks executed outside of normal loop
+// TODO: flush HW UART before light sleep?
+
+namespace sleep {
+namespace {
+
+namespace internal {
+
+std::forward_list<SleepCallback> before;
+std::forward_list<SleepCallback> after;
+
+} // namespace internal
+
+constexpr auto DeepSleepWakeupPin = uint8_t{ 16 };
+
+namespace build {
+
+static constexpr auto DefaultInterrupt = espurna::sleep::Interrupt::Low;
+static constexpr auto DefaultPin = uint8_t{ GPIO_NONE };
+
+} // namespace build
+
+namespace settings {
+namespace keys {
+
+PROGMEM_STRING(Pin, "sleepPin");
+PROGMEM_STRING(Interrupt, "sleepIntr");
+
+} // namespace keys
+
+uint8_t pin() {
+    return getSetting(keys::Pin, build::DefaultPin);
+}
+
+espurna::sleep::Interrupt interrupt() {
+    return getSetting(keys::Interrupt, build::DefaultInterrupt);
+}
+
+} // namespace settings
+
+// 0xFFFFFFF is a magic number per the NONOS API reference, 3.7.5 wifi_fpm_do_sleep:
+// > If sleep_time_in_us is 0xFFFFFFF, the ESP8266 will sleep till be woke up as below:
+// > • If wifi_fpm_set_sleep_type is set to be LIGHT_SLEEP_T, ESP8266 can wake up by GPIO.
+// > • If wifi_fpm_set_sleep_type is set to be MODEM_SLEEP_T, ESP8266 can wake up by wifi_fpm_do_wakeup.
+//
+// In our case, both sleep modes are indefinite when OFF action is executed.
+// Light sleep timed mode *can* be enabled, but effectively forces all SDK timers to be expunged.
+//
+// Null mode turns off radio, no need for extra code to enable MODEM sleep after switching to NULL mode.
+
+extern "C" bool fpm_is_open(void);
+extern "C" bool fpm_rf_is_closed(void);
+
+// We have to wait for certain {F,}PM changes that happen in SDK system idle task
+template <typename T>
+bool wait_for_fpm(duration::Milliseconds timeout, T&& condition) {
+    return time::blockingDelay(
+        timeout, duration::Milliseconds{ 1 }, std::forward<T>(condition));
+}
+
+template <typename Condition, typename Action>
+bool wait_for_fpm(duration::Milliseconds timeout, Condition&& condition, Action&& action) {
+    if (condition()) {
+        action();
+        return wait_for_fpm(timeout, std::forward<Condition>(condition));
+    }
+
+    return false;
+}
+
+bool forced_wakeup() {
+    // Per API spec, we have to disable current forced PM mode to switch
+    // it to something else. Wait for a bit until both conditions are true
+    // and no idle task is attached to the system loop.
+    constexpr auto Timeout = duration::Seconds{ 1 };
+    const auto rf_closed = wait_for_fpm(
+        Timeout, fpm_rf_is_closed, wifi_fpm_do_wakeup);
+    if (rf_closed) {
+        return false;
+    }
+
+    const auto fpm_opened = wait_for_fpm(
+        Timeout, fpm_is_open, wifi_fpm_close);
+    if (fpm_opened) {
+        return false;
+    }
+
+    return true;
+}
+
+// Generic PM mode that disables RF peripheral.
+// We can still execute user code while it is active.
+bool forced_modem_sleep() {
+    if (!wifiDisabled()) {
+        return false;
+    }
+
+    if (!forced_wakeup()) {
+        return false;
+    }
+
+    wifi_fpm_set_sleep_type(MODEM_SLEEP_T);
+    wifi_fpm_open();
+
+    const auto result = wifi_fpm_do_sleep(FpmSleepIndefinite.count());
+    if (result != 0) {
+        wifi_fpm_close();
+        return false;
+    }
+
+    // Change *would* occur regardless, but we still notify that expected t/o happened
+    return wait_for_fpm(
+        duration::Milliseconds{ 1000 },
+        []() {
+            return !fpm_rf_is_closed();
+        });
+}
+
+// CPU + RF power saving mode. 
+// SDK enters IDLE task with minimal amount of operations.
+// User code would not be executed while the device is asleep.
+// On wakeup, execution resumes from this point.
+struct FpmLightSleep {
+    FpmLightSleep();
+    ~FpmLightSleep();
+
+    explicit operator bool() const {
+        return _ok;
+    }
+
+private:
+    bool _ok { false };
+};
+
+FpmLightSleep::~FpmLightSleep() {
+    if (_ok) {
+        wifi_fpm_close();
+        for (auto callback : internal::after) {
+            callback();
+        }
+    }
+
+    wifi_fpm_auto_sleep_set_in_null_mode(1);
+    espurnaReload();
+    forced_modem_sleep();
+}
+
+FpmLightSleep::FpmLightSleep() {
+    // Unlike deep sleep option, we have to manually go over everything related
+    // to WiFi state management; both for our internals and SDK ones
+    wifi_fpm_auto_sleep_set_in_null_mode(0);
+
+    // Since both sleep variants are going to block user
+    // task, WiFi actions would be delayed until woken up
+    wifiDisconnect();
+    wifiDisable();
+
+    if (!forced_wakeup()) {
+        return;
+    }
+
+    // ...before FPM type can be changed yet again
+    wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);
+    wifi_fpm_open();
+
+    for (auto callback : internal::before) {
+        callback();
+    }
+
+    _ok = true;
+}
+
+bool forced_light_sleep(sleep::Microseconds time) {
+    // Can't really do what deep sleep does without EXT wakeup source
+    if ((time <= FpmSleepMin) || (time >= FpmSleepIndefinite)) {
+        return false;
+    }
+
+    // Common before and after actions
+    FpmLightSleep sleep;
+    if (!sleep) {
+        return false;
+    }
+
+    // NONOS has a quirky implementation - while RF peripheral is stopped,
+    // neither system or sdk tasks are. Timers are still processed,
+    // interrupts are happening, background tasks may still execute.
+    //
+    // Instead of doing a (fairly common) workaround that temporarily hides
+    // every available timer from SDK, just pretend this works as intended and
+    // block with software timer loop.
+    //
+    // Also ref. `ets_set_idle_cb` processing at 0x3fffdab0 (func) and 0x3fffdab4 (arg)
+    // (in case RF + CPU sleep and RTC peripheral communication can be replicated here)
+    static bool block;
+    block = true;
+
+    wifi_fpm_set_wakeup_cb([]() {
+        block = false;
+    });
+
+    const auto result = wifi_fpm_do_sleep(time.count());
+    if (result == 0) {
+        const auto Wait = std::chrono::duration_cast<duration::Milliseconds>(time);
+        espurna::time::blockingDelay(
+            Wait,
+            Wait,
+            []() {
+                return block;
+            });
+    }
+
+    wifi_fpm_close();
+
+    return result == 0;
+}
+
+bool forced_light_sleep(uint8_t pin, Interrupt interrupt) {
+    if (pin == DeepSleepWakeupPin) {
+        return false;
+    }
+
+    const auto& hardware = hardwareGpio();
+    if (!hardware.valid(pin)) {
+        return false;
+    }
+
+    // Common before and after actions
+    FpmLightSleep sleep;
+    if (!sleep) {
+        return false;
+    }
+
+    // TODO: does pin mode apply interrupt mask for wakeup properly?
+    // TODO: check whether pin is already in use?
+    const auto pin_mode = espurna::gpio::pin_mode(pin);
+    pinMode(pin,
+        (interrupt == Interrupt::Low)
+            ? INPUT
+            : INPUT_PULLUP);
+
+    wifi_enable_gpio_wakeup(pin,
+        (interrupt == Interrupt::Low)
+            ? GPIO_PIN_INTR_LOLEVEL
+            : GPIO_PIN_INTR_HILEVEL);
+
+    // User task is suspended for the duration of the sleep,
+    // delay is just a context switch so idle task does its job
+    const auto result = wifi_fpm_do_sleep(FpmSleepIndefinite.count());
+    delay(10);
+
+    // Restore everything back as it was before
+    wifi_disable_gpio_wakeup();
+    pinMode(pin, pin_mode.value);
+
+    return result == 0;
+}
+
+bool forced_light_sleep() {
+    return forced_light_sleep(settings::pin(), settings::interrupt());
+}
+
+// Extended sleep variant that disables everything but RTC memory.
+// Unlike LIGHT sleep, device would be reset via RST pin to wake up.
+bool deep_sleep(sleep::Microseconds time) {
+    const auto& hardware = hardwareGpio();
+    if (hardware.lock(DeepSleepWakeupPin)) {
+        return false;
+    }
+
+    system_deep_sleep_set_option(RF_DEFAULT);
+    if (system_deep_sleep(time.count())) {
+        for (auto callback : internal::before) {
+            callback();
+        }
+
+        yield();
+        return true;
+    }
+
+    return false;
+}
+
+void before(SleepCallback callback) {
+    internal::before.push_front(callback);
+}
+
+void after(SleepCallback callback) {
+    internal::after.push_front(callback);
+}
+
+// Force WiFi RF peripheral to power down when NULL opmode is selected
+void init() {
+    wifi_fpm_auto_sleep_set_in_null_mode(1);
+}
+
+} // namespace
+} // namespace sleep
 
 // -----------------------------------------------------------------------------
 
@@ -271,10 +579,23 @@ bool password_equals(StringView other) {
 namespace settings {
 namespace query {
 
-static constexpr std::array<espurna::settings::query::Setting, 3> Settings PROGMEM {{
+#define EXACT_VALUE(NAME, FUNC)\
+String NAME () {\
+    return espurna::settings::internal::serialize(FUNC());\
+}
+
+EXACT_VALUE(sleepPin, sleep::settings::pin);
+EXACT_VALUE(sleepInterrupt, sleep::settings::interrupt);
+
+#undef EXACT_VALUE
+
+static constexpr std::array<espurna::settings::query::Setting, 5> Settings PROGMEM {{
      {keys::Description, system::description},
      {keys::Hostname, system::hostname},
      {keys::Password, system::password},
+
+     {sleep::settings::keys::Pin, query::sleepPin},
+     {sleep::settings::keys::Interrupt, query::sleepInterrupt},
 }};
 
 bool checkExact(StringView key) {
@@ -313,14 +634,17 @@ bool tryDelay(CoreClock::time_point start, CoreClock::duration timeout, CoreCloc
     return true;
 }
 
-void blockingDelay(CoreClock::duration timeout, CoreClock::duration interval) {
-    blockingDelay(timeout, interval, []() {
-        return true;
-    });
+bool blockingDelay(CoreClock::duration timeout, CoreClock::duration interval) {
+    return blockingDelay(
+        timeout,
+        interval,
+        []() {
+            return true;
+        });
 }
 
-void blockingDelay(CoreClock::duration timeout) {
-    blockingDelay(timeout, timeout);
+bool blockingDelay(CoreClock::duration timeout) {
+    return blockingDelay(timeout, timeout);
 }
 
 } // namespace time
@@ -1009,7 +1333,8 @@ void push(Callback callback, Mode mode, duration::Seconds interval) {
     schedule();
 }
 
-void pushOnce(Callback callback) {
+[[gnu::unused]]
+void push_once(Callback callback) {
     push(callback, Mode::Once, espurna::duration::Seconds::min());
 }
 
@@ -1044,7 +1369,7 @@ void loop() {
 
 void init() {
 #if DEBUG_SUPPORT
-    pushOnce([](Mask) {
+    push_once([](Mask) {
         const auto mode = settings::mode();
         if (mode != Mode::None) {
             DEBUG_MSG_P(PSTR("[MAIN] Heartbeat \"%s\", every %u (seconds)\n"),
@@ -1056,7 +1381,7 @@ void init() {
         return true;
     });
 #if SYSTEM_CHECK_ENABLED
-    pushOnce([](Mask) {
+    push_once([](Mask) {
         if (!espurna::boot::stability::check()) {
             DEBUG_MSG_P(PSTR("[MAIN] System UNSTABLE\n"));
         } else if (espurna::boot::internal::timer) {
@@ -1105,8 +1430,12 @@ void onConnected(JsonObject& root) {
 }
 
 bool onKeyCheck(StringView key, const JsonVariant&) {
-    return espurna::settings::query::samePrefix(key, STRING_VIEW("sys"))
-        || espurna::settings::query::samePrefix(key, STRING_VIEW("hb"));
+    return (key == system::settings::keys::Description)
+        || (key == system::settings::keys::Hostname)
+        || (key == system::settings::keys::Password)
+        || key.startsWith(STRING_VIEW("hb"))
+        || key.startsWith(STRING_VIEW("sleep"))
+        || key.startsWith(STRING_VIEW("sys"));
 }
 
 void init() {
@@ -1196,6 +1525,8 @@ void setup() {
     boot::hardware();
     boot::customReason();
 
+    sleep::init();
+
 #if SYSTEM_CHECK_ENABLED
     boot::stability::init();
 #endif
@@ -1214,6 +1545,24 @@ void setup() {
 } // namespace espurna
 
 // -----------------------------------------------------------------------------
+
+// using 'random device' as-is, while most common implementations
+// would've used it as a seed for some generator func
+// TODO notice that stdlib std::mt19937 struct needs ~2KiB for it's internal
+// `result_type state[std::mt19937::state_size]` (ref. sizeof())
+uint32_t randomNumber(uint32_t minimum, uint32_t maximum) {
+    using Device = espurna::system::RandomDevice;
+    using Type = Device::result_type;
+
+    static Device random;
+    auto distribution = std::uniform_int_distribution<Type>(minimum, maximum);
+
+    return distribution(random);
+}
+
+uint32_t randomNumber() {
+    return (espurna::system::RandomDevice{})();
+}
 
 unsigned long systemFreeStack() {
     return espurna::memory::freeStack();
@@ -1280,6 +1629,38 @@ void customResetReason(CustomResetReason reason) {
 
 String customResetReasonToPayload(CustomResetReason reason) {
     return espurna::boot::serialize(reason);
+}
+
+bool prepareModemForcedSleep() {
+    return espurna::sleep::forced_modem_sleep();
+}
+
+bool wakeupModemForcedSleep() {
+    return espurna::sleep::forced_wakeup();
+}
+
+void systemBeforeSleep(SleepCallback callback) {
+    espurna::sleep::before(callback);
+}
+
+void systemAfterSleep(SleepCallback callback) {
+    espurna::sleep::after(callback);
+}
+
+bool instantLightSleep() {
+    return espurna::sleep::forced_light_sleep();
+}
+
+bool instantLightSleep(espurna::sleep::Microseconds time) {
+    return espurna::sleep::forced_light_sleep(time);
+}
+
+bool instantLightSleep(uint8_t pin, espurna::sleep::Interrupt interrupt) {
+    return espurna::sleep::forced_light_sleep(pin, interrupt);
+}
+
+bool instantDeepSleep(espurna::sleep::Microseconds time) {
+    return espurna::sleep::deep_sleep(time);
 }
 
 #if SYSTEM_CHECK_ENABLED

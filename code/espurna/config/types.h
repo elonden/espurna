@@ -17,25 +17,24 @@
 // BUTTONS
 //------------------------------------------------------------------------------
 
-#define BUTTON_ACTION_NONE            ButtonAction::None
-#define BUTTON_ACTION_TOGGLE          ButtonAction::Toggle
-#define BUTTON_ACTION_ON              ButtonAction::On
-#define BUTTON_ACTION_OFF             ButtonAction::Off
-#define BUTTON_ACTION_AP              ButtonAction::AccessPoint
-#define BUTTON_ACTION_RESET           ButtonAction::Reset
-#define BUTTON_ACTION_PULSE           ButtonAction::Pulse
-#define BUTTON_ACTION_FACTORY         ButtonAction::FactoryReset
-#define BUTTON_ACTION_WPS             ButtonAction::Wps
-#define BUTTON_ACTION_SMART_CONFIG    ButtonAction::SmartConfig
-#define BUTTON_ACTION_DIM_UP          ButtonAction::BrightnessIncrease
-#define BUTTON_ACTION_DIM_DOWN        ButtonAction::BrightnessDecrease
-#define BUTTON_ACTION_DISPLAY_ON      ButtonAction::DisplayOn
-#define BUTTON_ACTION_CUSTOM          ButtonAction::Custom
-#define BUTTON_ACTION_FAN_LOW         ButtonAction::FanLow
-#define BUTTON_ACTION_FAN_MEDIUM      ButtonAction::FanMedium
-#define BUTTON_ACTION_FAN_HIGH        ButtonAction::FanHigh
-
-#define BUTTON_ACTION_MAX             ButtonsActionMax
+#define BUTTON_ACTION_NONE                ButtonAction::None
+#define BUTTON_ACTION_TOGGLE              ButtonAction::Toggle
+#define BUTTON_ACTION_ON                  ButtonAction::On
+#define BUTTON_ACTION_OFF                 ButtonAction::Off
+#define BUTTON_ACTION_AP                  ButtonAction::AccessPoint
+#define BUTTON_ACTION_RESET               ButtonAction::Reset
+#define BUTTON_ACTION_PULSE               ButtonAction::Pulse
+#define BUTTON_ACTION_FACTORY             ButtonAction::FactoryReset
+#define BUTTON_ACTION_WPS                 ButtonAction::Wps
+#define BUTTON_ACTION_SMART_CONFIG        ButtonAction::SmartConfig
+#define BUTTON_ACTION_DIM_UP              ButtonAction::BrightnessIncrease
+#define BUTTON_ACTION_DIM_DOWN            ButtonAction::BrightnessDecrease
+#define BUTTON_ACTION_DISPLAY_ON          ButtonAction::DisplayOn
+#define BUTTON_ACTION_CUSTOM              ButtonAction::Custom
+#define BUTTON_ACTION_FAN_LOW             ButtonAction::FanLow
+#define BUTTON_ACTION_FAN_MEDIUM          ButtonAction::FanMedium
+#define BUTTON_ACTION_FAN_HIGH            ButtonAction::FanHigh
+#define BUTTON_ACTION_TERMINAL_COMMAND    ButtonAction::TerminalCommand
 
 // Deprecated: legacy mapping, changed to action from above
 #define BUTTON_MODE_NONE              BUTTON_ACTION_NONE
@@ -63,8 +62,10 @@
 
 // configure where do we get the button events
 #define BUTTON_PROVIDER_NONE        ButtonProvider::None
+#define BUTTON_PROVIDER_DUMMY       ButtonProvider::Dummy
 #define BUTTON_PROVIDER_GPIO        ButtonProvider::Gpio
 #define BUTTON_PROVIDER_ANALOG      ButtonProvider::Analog
+#define BUTTON_PROVIDER_LIGHTFOX    ButtonProvider::Lightfox
 
 //------------------------------------------------------------------------------
 // ENCODER
@@ -106,6 +107,10 @@
 #define RELAY_PROVIDER_GPIO         RelayProvider::Gpio
 #define RELAY_PROVIDER_DUAL         RelayProvider::Dual
 #define RELAY_PROVIDER_STM          RelayProvider::Stm
+#define RELAY_PROVIDER_LIGHT_STATE  RelayProvider::LightState
+#define RELAY_PROVIDER_FAN          RelayProvider::Fan
+#define RELAY_PROVIDER_LIGHTFOX     RelayProvider::Lightfox
+#define RELAY_PROVIDER_TUYA         RelayProvider::Tuya
 
 #define RFB_PROVIDER_RCSWITCH       0
 #define RFB_PROVIDER_EFM8BB1        1
@@ -257,6 +262,7 @@
 //------------------------------------------------------------------------------
 // PWM
 //------------------------------------------------------------------------------
+
 #define PWM_PROVIDER_NONE           0
 #define PWM_PROVIDER_GENERIC        1
 #define PWM_PROVIDER_ARDUINO        2
@@ -422,3 +428,14 @@
 #define SECURE_CLIENT_CHECK_NONE          0 // !!! INSECURE CONNECTION !!!
 #define SECURE_CLIENT_CHECK_FINGERPRINT   1 // legacy fingerprint validation
 #define SECURE_CLIENT_CHECK_CA            2 // set trust anchor from PROGMEM CA certificate
+
+//------------------------------------------------------------------------------
+// WiFi
+//------------------------------------------------------------------------------
+
+#define WIFI_SLEEP_MODE_NONE        NONE_SLEEP_T
+#define WIFI_SLEEP_MODE_MODEM       MODEM_SLEEP_T
+#define WIFI_SLEEP_MODE_LIGHT       LIGHT_SLEEP_T
+
+#define WIFI_DISABLED               BootMode::Disabled
+#define WIFI_ENABLED                BootMode::Enabled

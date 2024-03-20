@@ -57,9 +57,13 @@
                                                             // Warning: this might wear out flash fast!
 #endif
 
+#ifndef SENSOR_PUBLISH_ADDRESSES
 #define SENSOR_PUBLISH_ADDRESSES            0               // Publish sensor addresses
-#define SENSOR_ADDRESS_TOPIC                "address"       // Topic to publish sensor addresses
+#endif
 
+#ifndef SENSOR_ADDRESS_TOPIC
+#define SENSOR_ADDRESS_TOPIC                "address"       // Topic to publish sensor addresses
+#endif
 
 // -----------------------------------------------------------------------------
 // Magnitude offset correction
@@ -146,6 +150,22 @@
 
 #ifndef BH1750_ADDRESS
 #define BH1750_ADDRESS                  0x00    // 0x00 means auto
+#endif
+
+#ifndef BH1750_ACCURACY
+#define BH1750_ACCURACY                 1.2     // RAW value conversion ratio
+                                                // Allowed values are 0.96...1.44
+#endif
+
+#ifndef BH1750_SENSITIVITY
+#define BH1750_SENSITIVITY              1.0     // Measurement sensitivity; value is derived from 'MTreg CURRENT'
+                                                // `SENSITIVITY = MTreg CURRENT / MTreg DEFAULT` (up to 2 decimal places)
+                                                // e.g. for MTreg allowed values of 31...254
+                                                // * 31 -> 0.45 (min)
+                                                // * 69 -> 1.0
+                                                // * 138 -> 2.0
+                                                // * 207 -> 3.0
+                                                // * 254 -> 3.68 (max)
 #endif
 
 #ifndef BH1750_MODE
@@ -806,6 +826,14 @@
 #ifndef MHZ19_PORT
 #define MHZ19_PORT                      1     // By default, use the first port
                                               // (needs `UART[1-3]_BAUDRATE 9600`)
+#endif
+
+#ifndef MHZ19_CALIBRATE_AUTO
+#define MHZ19_CALIBRATE_AUTO            0
+#endif
+
+#ifndef MHZ19_DETECTION_RANGE
+#define MHZ19_DETECTION_RANGE           2000
 #endif
 
 //------------------------------------------------------------------------------

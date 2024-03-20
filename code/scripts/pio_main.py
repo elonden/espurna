@@ -17,7 +17,9 @@ from espurna_utils import (
     app_inject_flags,
     app_inject_version,
     app_add_gzip_file,
+    app_patch_cachedir,
     check_binsize,
+    check_env,
     disable_postmortem_output,
     ldscripts_inject_libpath,
     remove_float_support,
@@ -29,7 +31,7 @@ Import("env", "projenv")
 env = globals()["env"]
 projenv = globals()["projenv"]
 
-CI = "true" == os.environ.get("CI")
+CI = check_env("CI", "false")
 
 # See what happens in-between linking .cpp.o + .a into the resulting .elf
 env.Append(ESPURNA_BUILD_FIRMWARE_MAP="${BUILD_DIR}/${PROGNAME}.map")
@@ -70,3 +72,14 @@ app_add_target_build_and_copy(projenv)
 
 # handle special GzipFile builder
 app_add_gzip_file(projenv)
+
+# pre-processed single-source only makes sense from projenv
+pre_process = env.get("ESPURNA_SINGLE_SOURCE_TARGET")
+if pre_process:
+    projenv.PreProcess(pre_process)
+
+# hijack SCons signature generation to exclude BUILD_DIR, making our builds faster
+# when using different environments (i.e. itead-sonoff-basic, itead-sonoff-pow, etc.)
+cachedir_fix = check_env("ESPURNA_FIX_CACHEDIR_PATH", "n")
+if cachedir_fix:
+    app_patch_cachedir(projenv)
